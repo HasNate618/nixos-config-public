@@ -1,0 +1,253 @@
+#!/usr/bin/env python3
+"""
+zen-matugen-watcher — background daemon that watches matugen wallpaper
+changes and hot-reloads Zen Browser transparency WITHOUT restart.
+
+Watches:    The rendered chrome.css (where skwd-wall writes matugen output)
+Updates:    CSS + prefs
+Live push:  via Marionette TCP (sets CSS variable on :root in ALL windows)
+Fallback:   notify-send if Marionette unavailable
+
+Uses the same <length>:<json> Marionette protocol as the Arch 28-zen.sh script.
+"""
+
+import json
+import os
+import re
+import signal
+import socket
+import subprocess
+import sys
+import time
+from pathlib import Path
+
+# ── configuration ──────────────────────────────────────────────────────────
+
+OUTPUT_FILE = (
+    Path.home()
+    / ".config"
+    / "zen"
+    / "7khcdo47.Default (release)"
+    / "chrome"
+    / "zen-themes"
+    / "matugen-transparency"
+    / "chrome.css"
+)
+
+ZEN_PREFS = Path.home() / ".config" / "zen" / "7khcdo47.Default (release)" / "prefs.js"
+ZEN_USER_JS = Path.home() / ".config" / "zen" / "7khcdo47.Default (release)" / "user.js"
+MARIONETTE_HOST = "127.0.0.1"
+MARIONETTE_PORT = 2828
+
+# ── color extraction ───────────────────────────────────────────────────────
+
+_last_color: str | None = None
+
+
+def extract_color() -> str | None:
+    """Read the rendered chrome.css and extract the transparency color."""
+    if not OUTPUT_FILE.exists():
+        return None
+    text = OUTPUT_FILE.read_text()
+    for pattern in [
+        r'--mod-sameerasw-zen_transparency_color:\s*(#[0-9A-Fa-f]{6,8})',
+        r'--zen-transparency-color:\s*(#[0-9A-Fa-f]{6,8})',
+        r'--zen-main-browser-background:\s*(#[0-9A-Fa-f]{6})',
+    ]:
+        m = re.search(pattern, text)
+        if m:
+            c = m.group(1)
+            return c if len(c) == 9 else c[:7] + "CC"
+    return None
+
+
+# ── file writers ───────────────────────────────────────────────────────────
+
+
+def update_pref(filepath: Path, pref: str, value: str) -> bool:
+    if not filepath.exists():
+        filepath.write_text(f'// zen-matugen-watcher\nuser_pref("{pref}", "{value}");\n')
+        return True
+    text = filepath.read_text()
+    pat = re.compile(rf'user_pref\("{re.escape(pref)}",\s*"[^"]*"\s*\);')
+    replacement = f'user_pref("{pref}", "{value}");'
+    if pat.search(text):
+        new_text = pat.sub(replacement, text)
+    else:
+        new_text = text.rstrip() + "\n" + replacement + "\n"
+    if new_text != text:
+        filepath.write_text(new_text)
+        return True
+    return False
+
+
+# ── Marionette driver ──────────────────────────────────────────────────────
+
+
+def _recv(sock: socket.socket) -> dict:
+    buf = b""
+    while b":" not in buf:
+        c = sock.recv(1)
+        if not c:
+            raise RuntimeError("Marionette closed")
+        buf += c
+    length_part, remainder = buf.split(b":", 1)
+    length = int(length_part)
+    payload = remainder
+    while len(payload) < length:
+        chunk = sock.recv(length - len(payload))
+        if not chunk:
+            raise RuntimeError("Marionette closed during payload")
+        payload += chunk
+    return json.loads(payload.decode("utf-8"))
+
+
+def _send(sock: socket.socket, msg_id: int, command: str, params: dict) -> dict:
+    body = json.dumps([0, msg_id, command, params], separators=(",", ":"))
+    sock.sendall(f"{len(body)}:{body}".encode("utf-8"))
+    resp = _recv(sock)
+    if not isinstance(resp, list) or len(resp) < 4:
+        raise RuntimeError(f"Bad response for {command}: {resp!r}")
+    if resp[1] != msg_id:
+        raise RuntimeError(f"Response ID mismatch: {resp[1]} != {msg_id}")
+    if resp[2] is not None:
+        msg = resp[2].get("message", resp[2])
+        raise RuntimeError(f"{command} failed: {msg}")
+    return resp[3]
+
+
+def push_via_marionette(color: str) -> bool:
+    """Set the transparency CSS variable on ALL browser windows via Marionette."""
+    try:
+        sock = socket.create_connection((MARIONETTE_HOST, MARIONETTE_PORT), timeout=2)
+        sock.settimeout(5)
+    except Exception:
+        return False
+
+    try:
+        _recv(sock)  # handshake
+        _send(sock, 1, "WebDriver:NewSession",
+              {"capabilities": {"alwaysMatch": {}, "firstMatch": [{}]}})
+        _send(sock, 2, "Marionette:SetContext", {"value": "chrome"})
+
+        result = _send(sock, 3, "WebDriver:ExecuteScript", {
+            "script": (
+                "const v = arguments[0];"
+                "Services.prefs.setStringPref("
+                '"mod.sameerasw.zen_transparency_color", v);'
+                "const wins = [];"
+                "const e = Services.wm.getEnumerator('navigator:browser');"
+                "while (e.hasMoreElements()) {"
+                "  const w = e.getNext();"
+                "  const r = w.document.documentElement;"
+                "  r.style.setProperty("
+                '    "--mod-sameerasw-zen_transparency_color", v, "important");'
+                "  r.style.removeProperty('--zen-main-browser-background');"
+                "  r.style.setProperty("
+                '    "--zen-themed-toolbar-bg-transparent","transparent","important");'
+                "  wins.push(r.style.getPropertyValue("
+                '    "--mod-sameerasw-zen_transparency_color"));'
+                "}"
+                "return {pref:Services.prefs.getStringPref("
+                '"mod.sameerasw.zen_transparency_color",""),wins};'
+            ),
+            "args": [color],
+        })
+
+        # verify
+        inner = result.get("value") if isinstance(result, dict) else None
+        if isinstance(inner, dict) and inner.get("pref") != color:
+            raise RuntimeError(f"pref mismatch: {inner.get('pref')!r} != {color!r}")
+
+        try:
+            _send(sock, 4, "WebDriver:DeleteSession", {})
+        except Exception:
+            pass
+        return True
+    except Exception as e:
+        print(f"  marionette: {e}")
+        return False
+    finally:
+        sock.close()
+
+
+# ── apply ──────────────────────────────────────────────────────────────────
+
+
+def apply_update(color: str) -> bool:
+    """Write files + try Marionette push. Returns True if live-updated."""
+    global _last_color
+    if color == _last_color:
+        return False
+    _last_color = color
+
+    update_pref(ZEN_PREFS, "mod.sameerasw.zen_transparency_color", color)
+    update_pref(ZEN_USER_JS, "mod.sameerasw.zen_transparency_color", color)
+    return push_via_marionette(color)
+
+
+# ── watcher (polling, no deps) ─────────────────────────────────────────────
+
+
+def main():
+    signal.signal(signal.SIGINT, lambda s, f: sys.exit(0))
+    signal.signal(signal.SIGTERM, lambda s, f: sys.exit(0))
+
+    print(f"[zen-matugen-watcher] watching: {OUTPUT_FILE}")
+
+    # Initial read
+    color = extract_color()
+    if color:
+        print(f"  current color: {color}")
+        if push_via_marionette(color):
+            print(f"  Marionette: live ✓")
+        else:
+            print(f"  Marionette: unavailable (files only)")
+            print(f"  → Restart Zen once for Marionette live reload")
+    else:
+        print(f"  no color found, waiting...")
+
+    last_mtime = OUTPUT_FILE.stat().st_mtime_ns if OUTPUT_FILE.exists() else 0
+    marionette_ok = False
+    last_marionette_check = 0
+
+    while True:
+        time.sleep(1.5)
+        
+        # Retry Marionette every 10s if not connected
+        now = time.monotonic()
+        if not marionette_ok and now - last_marionette_check > 10:
+            last_marionette_check = now
+            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            sock.settimeout(1)
+            try:
+                sock.connect((MARIONETTE_HOST, MARIONETTE_PORT))
+                marionette_ok = True
+                print(f"  Marionette: connected!")
+                sock.close()
+            except Exception:
+                pass
+            finally:
+                sock.close()
+        
+        if not OUTPUT_FILE.exists():
+            continue
+        mtime = OUTPUT_FILE.stat().st_mtime_ns
+        if mtime == last_mtime:
+            continue
+        last_mtime = mtime
+
+        color = extract_color()
+        if not color:
+            continue
+
+        ts = time.strftime("%H:%M:%S")
+        live = apply_update(color)
+        if live:
+            print(f"[{ts}] live: {color}")
+        else:
+            print(f"[{ts}] files: {color}")
+
+
+if __name__ == "__main__":
+    main()

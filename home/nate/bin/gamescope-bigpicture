@@ -1,0 +1,37 @@
+#!/usr/bin/env bash
+# Launch Steam Big Picture in Gamescope at the appropriate resolution
+# for the current display mode (docked / laptop)
+
+set -euo pipefail
+
+STATE=$(cat "$HOME/.config/display-state" 2>/dev/null || echo "laptop")
+
+case "$STATE" in
+    docked)
+        # Dell S3225QS: 4K@120Hz. DLSS Performance from 4K is clean;
+        # 55W RTX 4060 holds 60-70 in most titles at these settings.
+        W=3840 H=2160 R=120
+        ;;
+    laptop)
+        W=2560 H=1600 R=240
+        ;;
+esac
+
+export WLR_NO_HARDWARE_CURSORS=1
+
+# Disable Vulkan implicit layers (MangoHud layer) and cap NVIDIA frame buffering
+export VK_LOAD_LAYERS=""
+export __GL_MaxFramesAllowed=1
+
+# 12GB shader disk cache — matches the steam wrapper; bigpicture runs steam
+# directly so it needs the vars itself (default 128MB -> recompile stutter).
+export __GL_SHADER_DISK_CACHE_SIZE=12000000000
+export __GL_SHADER_DISK_CACHE_SKIP_CLEANUP=1
+
+# NOTE: nvidia-offload gamescope was tried (2026-08-09) - the window does
+# NOT map on Hyprland with gamescope on the dGPU (invisible-window bug,
+# gamescope#1707 class). Kept on the iGPU; load is cut by -r 60 + Hyprland
+# render:direct_scanout (removes Hyprland's re-composite pass).
+exec gamescope -W "$W" -H "$H" -r "$R" \
+  --force-grab-cursor -f --steam -- \
+  steam -bigpicture

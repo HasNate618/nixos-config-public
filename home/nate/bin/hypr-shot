@@ -1,0 +1,102 @@
+#!/usr/bin/env bash
+# Usage: hypr-shot [region|full|window]
+# Takes a screenshot, saves to ~/Pictures/Screenshots/, copies to clipboard,
+# and shows a notification.
+#
+# region mode (smart):
+#   Freezes screen with hyprpicker overlay, shows window outlines.
+#   Drag anywhere → captures that rectangle
+#   Click on a window → captures that window
+#   Escape → cancels
+
+MODE="${1:-full}"
+DIR="$HOME/Pictures/Screenshots"
+mkdir -p "$DIR"
+
+FILE="$DIR/$(date +%Y-%m-%d_%H-%M-%S).png"
+
+_notify() {
+  notify-send -a Screenshot "$1" 2>/dev/null ||
+    dunstify -a Screenshot "$1" 2>/dev/null ||
+    echo "[Screenshot] $1"
+}
+
+# Keep hyprpicker alive until after grim captures so the screenshot sees the
+# frozen overlay rather than live content shifting during teardown.
+_cleanup() {
+  [[ -n $PICKER_PID ]] && kill "$PICKER_PID" 2>/dev/null
+}
+trap _cleanup EXIT
+
+case "$MODE" in
+  region)
+    # Get the active workspace ID
+    ACTIVE_WS=$(hyprctl monitors -j 2>/dev/null | jq -r '.[] | select(.focused == true) | .activeWorkspace.id')
+
+    # Get monitor + window geometries on the active workspace.
+    # Pipe to slurp WITHOUT -r: shows outlines as visual hints but doesn't restrict.
+    GEOS=$(hyprctl monitors -j 2>/dev/null | jq -r --arg ws "$ACTIVE_WS" '
+      def fmt: .x as $x | .y as $y
+        | (.width / .scale | floor) as $w
+        | (.height / .scale | floor) as $h
+        | .transform as $t
+        | if $t == 1 or $t == 3 then "\($x),\($y) \($h)x\($w)"
+          else "\($x),\($y) \($w)x\($h)" end;
+      .[] | select(.activeWorkspace.id == ($ws | tonumber)) | fmt'
+    )
+    GEOS+=$'\n'
+    GEOS+=$(hyprctl clients -j 2>/dev/null | jq -r --arg ws "$ACTIVE_WS" '
+      .[] | select(.workspace.id == ($ws | tonumber) and .mapped == true and .hidden == false)
+      | "\(.at[0]),\(.at[1]) \(.size[0])x\(.size[1])"'
+    )
+
+    # Freeze screen with hyprpicker overlay so content doesn't shift during selection
+    hyprpicker -r -z >/dev/null 2>&1 &
+    PICKER_PID=$!
+    sleep .1
+
+    SELECTION=$(echo "$GEOS" | slurp 2>/dev/null) || { _notify "Cancelled"; exit 1; }
+
+    # If selection area is tiny (< 20 px²), user clicked instead of dragging.
+    # Find which rectangle the click point falls inside and use that geometry.
+    if [[ $SELECTION =~ ^([0-9]+),([0-9]+)[[:space:]]([0-9]+)x([0-9]+)$ ]]; then
+      W=$((BASH_REMATCH[3]))
+      H=$((BASH_REMATCH[4]))
+      if (( W * H < 20 )); then
+        CX=${BASH_REMATCH[1]}
+        CY=${BASH_REMATCH[2]}
+        while IFS= read -r rect; do
+          [[ -z $rect ]] && continue
+          if [[ $rect =~ ^([0-9]+),([0-9]+)[[:space:]]([0-9]+)x([0-9]+) ]]; then
+            RX=${BASH_REMATCH[1]}
+            RY=${BASH_REMATCH[2]}
+            RW=${BASH_REMATCH[3]}
+            RH=${BASH_REMATCH[4]}
+            if (( CX >= RX && CX < RX + RW && CY >= RY && CY < RY + RH )); then
+              SELECTION="${RX},${RY} ${RW}x${RH}"
+              break
+            fi
+          fi
+        done <<< "$GEOS"
+      fi
+    fi
+
+    grim -g "$SELECTION" "$FILE"
+    LABEL="Region"
+    ;;
+  window)
+    hyprpicker -r -z >/dev/null 2>&1 &
+    PICKER_PID=$!
+    sleep .1
+    GEOMETRY=$(slurp -w) || { _notify "Cancelled"; exit 1; }
+    grim -g "$GEOMETRY" "$FILE"
+    LABEL="Window"
+    ;;
+  full|*)
+    grim "$FILE"
+    LABEL="Full screen"
+    ;;
+esac
+
+[ -f "$FILE" ] && wl-copy -t image/png < "$FILE" 2>/dev/null
+_notify "$LABEL captured"

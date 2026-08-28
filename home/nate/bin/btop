@@ -1,0 +1,3 @@
+#!/bin/sh
+# btop wrapper — patched binary finds NVIDIA via RUNPATH, Intel via cap_perfmon
+exec /run/wrappers/bin/btop "$@"

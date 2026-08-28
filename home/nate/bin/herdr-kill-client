@@ -1,0 +1,12 @@
+#!/bin/sh
+# Clear herdr's terminal, then kill only the CLIENT
+SERVER_PID=$(pgrep -f "herdr server" | head -1)
+for pid in $(pgrep -x herdr); do
+  [ "$pid" = "$SERVER_PID" ] && continue
+  # Find the terminal for this client
+  TTY=$(ps -o tty= -p "$pid" 2>/dev/null | tr -d ' ')
+  if [ -n "$TTY" ] && [ "$TTY" != "?" ]; then
+    printf '\033[2J\033[H' > "/dev/$TTY" 2>/dev/null
+  fi
+  kill "$pid" 2>/dev/null
+done

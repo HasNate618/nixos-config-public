@@ -1,0 +1,4 @@
+/* Matugen: only override content area backgrounds */
+/* Everything else stays from MonoThemeDark */
+
+@define-color theme_base_color rgba({{colors.surface.default.red}}, {{colors.surface.default.green}}, {{colors.surface.default.blue}}, 0.60);

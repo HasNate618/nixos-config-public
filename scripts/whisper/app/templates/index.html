@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Whisper</title>
+<link rel="stylesheet" href="/static/style.css?v=1">
+</head>
+<body tabindex="-1">
+<nav>
+  <h1>Whisper</h1>
+  <span class="device-badge" id="device-badge">initializing...</span>
+</nav>
+<main>
+  <section class="upload-zone" id="upload-zone">
+    <div class="upload-content">
+      <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/>
+        <path d="M19 10v2a7 7 0 0 1-14 0v-2"/>
+        <line x1="12" y1="19" x2="12" y2="23"/>
+        <line x1="8" y1="23" x2="16" y2="23"/>
+      </svg>
+      <p>Drop audio files here or click to browse</p>
+      <p class="hint">MP3, WAV, M4A, OGG, FLAC, AAC, OPUS, WebM</p>
+    </div>
+    <input type="file" id="file-input" multiple accept=".mp3,.wav,.m4a,.ogg,.flac,.aac,.wma,.opus,.webm,.mp4" hidden>
+  </section>
+  <section class="model-section" id="model-section">
+    <span class="model-label">Model:</span>
+    <div class="model-boxes" id="model-boxes"></div>
+  </section>
+  <section class="jobs" id="jobs-section">
+    <div class="jobs-header">
+      <h2>Jobs</h2>
+      <button class="btn btn-sm" id="clear-done-btn" hidden>Clear completed</button>
+    </div>
+    <div class="jobs-empty" id="jobs-empty">No jobs yet. Upload an audio file to get started.</div>
+    <table class="jobs-table" id="jobs-table" hidden>
+      <thead><tr><th>File</th><th>Language</th><th>Duration</th><th>Time</th><th>Status</th><th>Actions</th></tr></thead>
+      <tbody id="jobs-body"></tbody>
+    </table>
+  </section>
+</main>
+<div class="toast" id="toast"></div>
+<div class="modal-overlay" id="modal-overlay" hidden>
+  <div class="modal">
+    <div class="modal-header">
+      <span class="modal-title" id="modal-title">Preview</span>
+      <button class="btn btn-sm modal-close" id="modal-close">&times;</button>
+    </div>
+    <div class="modal-body" id="modal-body"></div>
+  </div>
+</div>
+<script src="/static/app.js?v=1"></script>
+</body>
+</html>

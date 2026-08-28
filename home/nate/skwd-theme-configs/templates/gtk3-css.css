@@ -1,0 +1,19 @@
+/* Matugen GTK3: portal file chooser + legacy apps */
+@define-color matugen_surface rgba({{colors.surface.default.red}}, {{colors.surface.default.green}}, {{colors.surface.default.blue}}, 0.60);
+decoration { background: @matugen_surface; background-color: @matugen_surface; }
+.background { background: @matugen_surface; background-color: @matugen_surface; }
+dialog { background: @matugen_surface; background-color: @matugen_surface; }
+headerbar { background: @matugen_surface; background-color: @matugen_surface; }
+treeview { background: @matugen_surface; background-color: @matugen_surface; }
+treeview.view { background: @matugen_surface; background-color: @matugen_surface; }
+iconview { background: @matugen_surface; background-color: @matugen_surface; }
+.view { background: @matugen_surface; background-color: @matugen_surface; }
+textview { background: @matugen_surface; background-color: @matugen_surface; }
+textview text { background: @matugen_surface; background-color: @matugen_surface; }
+scrolledwindow { background: @matugen_surface; background-color: @matugen_surface; }
+scrolledwindow viewport { background: @matugen_surface; background-color: @matugen_surface; }
+scrolledwindow viewport.frame { background: @matugen_surface; background-color: @matugen_surface; }
+#pathbarbox { background: @matugen_surface; background-color: @matugen_surface; }
+.path-bar { background: @matugen_surface; background-color: @matugen_surface; }
+.path-bar.linked>button { background: @matugen_surface; background-color: @matugen_surface; color: white; }
+.placessidebar { background: @matugen_surface; background-color: @matugen_surface; }

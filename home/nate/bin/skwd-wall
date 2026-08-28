@@ -1,0 +1,3 @@
+#!/bin/sh
+SKWD_PATCHED="$HOME/.local/share/skwd-wall-patched"
+exec quickshell -p "$SKWD_PATCHED/shell.qml" "$@"

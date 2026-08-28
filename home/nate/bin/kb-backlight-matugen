@@ -1,0 +1,27 @@
+#!/bin/sh
+# Set keyboard backlight to matugen primary color (1.5x saturation)
+# Called by skwd-wall after wallpaper change
+
+COLORS_JSON="/home/nate/.cache/skwd-wall/colors.json"
+[ -f "$COLORS_JSON" ] || exit 0
+
+# Extract primary color hex (without #)
+PRIMARY=$(grep -o '"primary": "#[0-9a-fA-F]*"' "$COLORS_JSON" | head -1 | sed 's/"primary": "#//;s/"//')
+[ -z "$PRIMARY" ] && exit 0
+
+# RGB→HSV, boost saturation 1.5x, HSV→RGB
+SATURATED=$(/etc/profiles/per-user/nate/bin/python3 -c "
+import colorsys
+hex_c = '$PRIMARY'
+r = int(hex_c[0:2], 16) / 255.0
+g = int(hex_c[2:4], 16) / 255.0
+b = int(hex_c[4:6], 16) / 255.0
+h, s, v = colorsys.rgb_to_hsv(r, g, b)
+s_new = min(1.0, s * 1.5)
+r2, g2, b2 = colorsys.hsv_to_rgb(h, s_new, v)
+print(f'{int(r2*255):02x}{int(g2*255):02x}{int(b2*255):02x}')
+" 2>/dev/null)
+
+[ -z "$SATURATED" ] && exit 0
+
+asusctl aura effect static -c "$SATURATED" 2>/dev/null

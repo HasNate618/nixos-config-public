@@ -1,0 +1,2 @@
+#!/bin/sh
+exec setsid -f /etc/profiles/per-user/nate/bin/zen "$@"

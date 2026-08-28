@@ -1,0 +1,3 @@
+#!/bin/sh
+# Launch Chromium fully detached from the dispatcher's process group.
+exec setsid -f chromium "$@"

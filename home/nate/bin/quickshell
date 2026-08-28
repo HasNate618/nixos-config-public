@@ -1,0 +1,2 @@
+#!/bin/sh
+exec /etc/profiles/per-user/nate/bin/quickshell "$@"

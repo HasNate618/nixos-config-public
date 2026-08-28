@@ -1,0 +1,286 @@
+{
+  "compositor": "hyprland",
+  "monitor": "DP-1",
+  "general": {
+    "locale": "",
+    "closeOnSelection": false,
+    "reopenAtLastSelection": false,
+    "wallpaperPerMonitor": false,
+    "filterBarAlwaysVisible": true
+  },
+  "paths": {
+    "wallpaper": "~/Pictures/Wallpapers",
+    "videoWallpaper": "~/videowalls",
+    "cache": "",
+    "templates": "",
+    "scripts": "",
+    "steam": "",
+    "steamWorkshop": "",
+    "steamWeAssets": ""
+  },
+  "features": {
+    "matugen": true,
+    "ollama": false,
+    "steam": false,
+    "wallhaven": true,
+    "videoAutoScale": false
+  },
+  "colorSource": "magick",
+  "ollama": {
+    "url": "http://localhost:11434",
+    "model": "gemma3:4b",
+    "consolidateEnabled": true
+  },
+  "steam": {
+    "apiKey": "",
+    "username": ""
+  },
+  "wallhaven": {
+    "apiKey": ""
+  },
+  "matugen": {
+    "schemeType": "scheme-content",
+    "mode": "dark"
+  },
+  "integrations": [
+    {
+      "_comment": "Built-in: MD3 colors for the shell UI (always needed)",
+      "name": "skwd-wall",
+      "template": "quickshell-colors.json",
+      "output": "colors.json"
+    },
+    {
+      "_comment": "MD3 colors for the Skwd shell widgets (skwd-bar etc)",
+      "name": "skwd",
+      "template": "quickshell-colors.json",
+      "output": "~/.cache/skwd/colors.json"
+    },
+    {
+      "_comment": "Quickshell desktop bar + omni-menu palette",
+      "name": "quickshell",
+      "template": "quickshell-colors.toml",
+      "output": "~/.config/quickshell/colors.toml",
+      "reload": "/home/nate/.local/bin/quickshell-theme-push"
+    },
+    {
+      "name": "kitty",
+      "template": "kitty.conf",
+      "output": "~/.config/kitty/skwd-theme.conf",
+      "reload": "pkill -USR1 kitty"
+    },
+    {
+      "name": "ghostty",
+      "template": "ghostty.conf",
+      "output": "~/.config/ghostty/skwd-theme",
+      "reload": "pkill -USR2 ghostty"
+    },
+    {
+      "name": "kde",
+      "template": "kde-colors.colors",
+      "output": "~/.local/share/color-schemes/SkwdMatugen.colors",
+      "reload": "/home/nate/.config/skwd-wall/scripts/reload-kde.sh"
+    },
+    {
+      "name": "vscode",
+      "template": "vscode-theme.json",
+      "output": "~/.vscode/extensions/matugen.matugen-theme-1.0.0/themes/matugen-color-theme.json"
+    },
+    {
+      "name": "vesktop",
+      "template": "vesktop.css",
+      "output": "~/.config/vesktop/themes/kitty-match.css"
+    },
+    {
+      "name": "spicetify",
+      "template": "spicetify.ini",
+      "output": "~/.config/spicetify/Themes/Matugen/color.ini",
+      "reload": "/home/nate/.config/skwd-wall/scripts/reload-spicetify.sh"
+    },
+    {
+      "name": "spicetify-css",
+      "template": "spicetify.css",
+      "output": "~/.config/spicetify/Themes/Matugen/user.css"
+    },
+    {
+      "name": "yazi",
+      "template": "yazi-theme.toml",
+      "output": "~/.config/yazi/theme.toml"
+    },
+    {
+      "name": "qt6ct",
+      "template": "qt6ct-colors.conf",
+      "output": "~/.config/qt6ct/colors/matugen.conf"
+    },
+    {
+      "_comment": "Zen theme in zen-themes/ for automatic hot-reload — no Marionette needed",
+      "name": "zen",
+      "template": "zen-transparency.css",
+      "output": "~/.config/zen/7khcdo47.Default (release)/chrome/zen-themes/matugen-transparency/chrome.css",
+      "reload": "/home/nate/.config/skwd-wall/scripts/reload-zen.sh"
+    },
+    {
+      "_comment": "Chromium theme colors for Stylus or userstyle manager",
+      "name": "chromium",
+      "template": "chromium.css",
+      "output": "~/.config/chromium/matugen-colors.css"
+    },
+    {
+      "_comment": "btop system monitor theme — SIGUSR2 hot-reloads without restart",
+      "name": "btop",
+      "template": "btop.theme",
+      "output": "~/.config/btop/themes/matugen.theme",
+      "reload": "pkill -SIGUSR2 btop 2>/dev/null || true"
+    },
+    {
+      "_comment": "cava audio visualizer theme — USR2 reloads colors",
+      "name": "cava",
+      "template": "cava-config",
+      "output": "~/.config/cava/themes/matugen",
+      "reload": "pkill -USR2 cava 2>/dev/null || true"
+    },
+    {
+      "_comment": "lazygit git TUI config (gui.theme section only — rest is skwd-managed)",
+      "name": "lazygit",
+      "template": "lazygit-config.yml",
+      "output": "~/.config/lazygit/config.yml"
+    },
+    {
+      "_comment": "zathura PDF viewer colors",
+      "name": "zathura",
+      "template": "zathurarc",
+      "output": "~/.config/zathura/zathurarc"
+    },
+    {
+      "_comment": "superfile file manager theme",
+      "name": "superfile",
+      "template": "superfile-theme.toml",
+      "output": "~/.config/superfile/theme/omarchy.toml"
+    },
+    {
+      "_comment": "opencode AI coding assistant — uses system/terminal palette, SIGUSR2 reloads",
+      "name": "opencode",
+      "template": "opencode-config.json",
+      "output": "~/.config/opencode/opencode.jsonc",
+      "reload": "pkill -SIGUSR2 opencode 2>/dev/null || true"
+    },
+    {
+      "_comment": "neovim colorscheme for aether.nvim hot-reload (watched via omarchy path)",
+      "name": "neovim",
+      "template": "neovim.lua",
+      "output": "~/.config/omarchy/current/theme/neovim.lua"
+    },
+    {
+      "_comment": "Hyprland window borders — accent active, darkened accent inactive",
+      "name": "hyprland-borders",
+      "template": "hyprland-border-color",
+      "output": "~/.cache/skwd-wall/hyprland-border-color",
+      "reload": "/etc/profiles/per-user/nate/bin/hyprland-border-theme"
+    },
+    {
+      "_comment": "Hyprland group window borders — tertiary active, darkened tertiary inactive",
+      "name": "hyprland-group-borders",
+      "template": "hyprland-group-border-color",
+      "output": "~/.cache/skwd-wall/hyprland-group-border-color",
+      "reload": "/etc/profiles/per-user/nate/bin/hyprland-border-theme"
+    },
+    {
+      "_comment": "GTK3 CSS overrides for matugen colors",
+      "name": "gtk3",
+      "template": "gtk3-css.css",
+      "output": "~/.config/gtk-3.0/gtk.css",
+      "reload": "systemctl --user restart xdg-desktop-portal-gtk.service || true"
+    },
+    {
+      "_comment": "GTK4 CSS overrides for matugen colors",
+      "name": "gtk4",
+      "template": "gtk4-css.css",
+      "output": "~/.config/gtk-4.0/gtk.css",
+      "reload": "pkill -f nautilus || true"
+    },
+    {
+      "_comment": "Hyprlock lockscreen — matugen-themed color variables",
+      "name": "hyprlock",
+      "template": "hyprlock-theme.conf",
+      "output": "~/.config/hypr/hyprlock-theme.conf",
+      "reload": ""
+    },
+    {
+      "_comment": "foot terminal emulator — USR1 reloads config",
+      "name": "foot",
+      "template": "foot-colors.conf",
+      "output": "~/.config/foot/colors.ini",
+      "reload": "/home/nate/.local/bin/foot-reload-colors.sh"
+    },
+    {
+      "name": "swayosd",
+      "template": "swayosd.css",
+      "output": "~/.config/swayosd/style.css",
+      "reload": "swayosd-client --config /dev/null 2>/dev/null || true"
+    },
+    {
+      "_comment": "Pi coding agent TUI — matugen MD3 theme; pi hot-reloads the active theme file on edit",
+      "name": "pi",
+      "template": "pi-theme.json",
+      "output": "~/.pi/agent/themes/matugen.json",
+      "reload": ""
+    }
+  ],
+  "components": {
+    "wallpaperSelector": {
+      "displayMode": "hex",
+      "sliceSpacing": -55,
+      "hexScrollStep": 1,
+      "customPresets": {
+        "C1_slices": {
+          "expandedWidth": 1000,
+          "sliceHeight": 680,
+          "sliceWidth": 220,
+          "visibleCount": 12,
+          "sliceSpacing": -55,
+          "skewOffset": 60
+        }
+      },
+      "roundCorners": false,
+      "expandedWidth": 1000,
+      "sliceHeight": 680,
+      "sliceWidth": 220,
+      "visibleCount": 12,
+      "skewOffset": 60,
+      "wallhavenThumbWidth": 500,
+      "hexCols": 6,
+      "wallhavenThumbHeight": 300,
+      "hexRadius": 150
+    }
+  },
+  "wallpaperMute": true,
+  "pickOnlyMode": false,
+  "externalWallpaperCommand": "",
+  "postProcessing": [
+    "ln -sf \"$(cat /home/nate/.cache/skwd-wall/last-wallpaper.json | jq -r \".path\" 2>/dev/null)\" /home/nate/.config/hypr/lock-bg 2>/dev/null || true",
+    "bash /home/nate/.config/skwd-wall/scripts/patch-monotheme.sh",
+    "/home/nate/.local/bin/kb-backlight-matugen",
+    "pkill swayosd-server; sleep 1; hyprctl eval 'hl.exec_cmd(\"/nix/store/s1ch2hx7ng46rr4an7jvxiqgvshgyjwc-swayosd-0.3.1/bin/swayosd-server\")'",
+    "/home/nate/.local/bin/herdr-kill-client 2>/dev/null || true"
+  ],
+  "performance": {
+    "imageOptimizePreset": "balanced",
+    "imageOptimizeResolution": "2k",
+    "videoConvertPreset": "balanced",
+    "videoConvertResolution": "2k",
+    "autoOptimizeImages": false,
+    "autoConvertVideos": false,
+    "imageTrashDays": 7,
+    "videoTrashDays": 7,
+    "autoDeleteImageTrash": false,
+    "autoDeleteVideoTrash": false
+  },
+  "transition": {
+    "shader": "directional-wipe",
+    "enabled": true
+  },
+  "display": {
+    "fillMode": "fill"
+  },
+  "externalMatugenCommand": "/etc/profiles/per-user/nate/bin/skwd-matugen-wrapper -c %config% image %path%",
+  "postProcessOnRestore": true
+}

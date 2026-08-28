@@ -1,0 +1,2 @@
+#!/usr/bin/env bash
+exec /etc/profiles/per-user/nate/bin/zen "$@"

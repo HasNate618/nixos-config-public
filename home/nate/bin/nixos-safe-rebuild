@@ -1,0 +1,46 @@
+#!/usr/bin/env bash
+# Safe NixOS rebuild wrapper — prevents rebuilding with wrong flake target
+# Usage: nixos-safe-rebuild [extra nixos-rebuild args]
+#
+# Re-execs via sudo when not root (NOPASSWD rule in hosts/nixos/default.nix),
+# so agents can call this directly instead of raw "sudo nixos-rebuild switch".
+
+set -euo pipefail
+
+# Re-exec with sudo if not already root
+if [[ $EUID -ne 0 ]]; then
+  exec sudo /home/nate/.local/bin/nixos-safe-rebuild "$@"
+fi
+
+HOSTNAME=$(hostname)
+FLAKE_DIR="/etc/nixos"
+
+# Extract --flake target from args or default to current hostname
+FLAKE_TARGET="$HOSTNAME"
+EXTRA_ARGS=()
+
+for (( i=1; i<=$#; i++ )); do
+  arg="${!i}"
+  if [[ "$arg" == "--flake" ]]; then
+    next=$((i+1))
+    flake_val="${!next}"
+    # Extract target from .#target format
+    FLAKE_TARGET="${flake_val##*.#}"
+    EXTRA_ARGS+=("$arg" "$flake_val")
+    ((i++))
+  else
+    EXTRA_ARGS+=("$arg")
+  fi
+done
+
+# Validate target matches hostname
+if [[ "$FLAKE_TARGET" != "$HOSTNAME" ]]; then
+  echo "ERROR: Flake target '$FLAKE_TARGET' doesn't match hostname '$HOSTNAME'" >&2
+  echo "" >&2
+  echo "This would rebuild with the wrong host config (like the aspire incident)." >&2
+  echo "If you really mean to do this, use: nixos-rebuild switch --flake .#$FLAKE_TARGET" >&2
+  exit 1
+fi
+
+# Run the rebuild
+exec nixos-rebuild switch --flake "$FLAKE_DIR" "${EXTRA_ARGS[@]}"

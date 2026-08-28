@@ -1,0 +1,61 @@
+#!/bin/sh
+# Generate matugen-themed hyprland border colors from quickshell colors.toml
+# Applies at runtime via hyprctl eval — no config reload needed.
+# Run once at startup and on wallpaper change.
+
+COLORS_FILE="$HOME/.config/quickshell/colors.toml"
+
+# Default colors (sensible dark theme fallback)
+ACTIVE="#a7c8ff"
+INACTIVE="#1a1a1e"
+
+# Try to read matugen colors
+if [ -f "$COLORS_FILE" ]; then
+  _get() {
+    sed -n "s/^$1 *= *\"\(.*\)\"/\1/p" "$COLORS_FILE" | head -1
+  }
+  AC="$(_get accent)" && [ -n "$AC" ] && ACTIVE="$AC"
+  BG="$(_get background)" && [ -n "$BG" ] && INACTIVE="$BG"
+fi
+
+# Compute inactive border: darken the active color by reducing each RGB channel
+_darken() {
+  python3 -c "
+h = '$1'.lstrip('#')
+r, g, b = int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16)
+factor = 0.35
+r = int(r * factor)
+g = int(g * factor)
+b = int(b * factor)
+print(f'#{r:02x}{g:02x}{b:02x}')
+"
+}
+
+COMPUTED_INACTIVE="$BG"
+
+if [ "$COMPUTED_INACTIVE" = "$ACTIVE" ] || [ -z "$COMPUTED_INACTIVE" ]; then
+  COMPUTED_INACTIVE="$INACTIVE"
+fi
+
+# Convert hex to rgba for hyprland (add full alpha ee)
+_hex_to_rgba() {
+  local hex="$1"
+  hex="${hex#\#}"
+  echo "rgba(${hex}ee)"
+}
+
+ACTIVE_RGBA="$(_hex_to_rgba "$ACTIVE")"
+INACTIVE_RGBA="rgba($(echo "$COMPUTED_INACTIVE" | sed "s/^#//")33)"
+GROUP_ACTIVE="#e7bfa0"
+GROUP_INACTIVE="#3e2b19"
+GROUP_ACTIVE_RGBA="$(_hex_to_rgba "$GROUP_ACTIVE")"
+GROUP_INACTIVE_RGBA="rgba($(echo "$GROUP_INACTIVE" | sed "s/^#//")33)"
+
+# Discover hyprland instance if not set
+if [ -z "$HYPRLAND_INSTANCE_SIGNATURE" ]; then
+  export HYPRLAND_INSTANCE_SIGNATURE=$(ls -1t /run/user/1000/hypr 2>/dev/null | head -1)
+fi
+
+if [ -n "$HYPRLAND_INSTANCE_SIGNATURE" ]; then
+  hyprctl eval "hl.config({[\"general.col.active_border\"] = \"$ACTIVE_RGBA\", [\"general.col.inactive_border\"] = \"$INACTIVE_RGBA\", [\"general.border_size\"] = 1, [\"decoration.rounding\"] = 0, [\"group.col.border_active\"] = \"$GROUP_ACTIVE_RGBA\", [\"group.col.border_inactive\"] = \"$GROUP_INACTIVE_RGBA\"})"
+fi

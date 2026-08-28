@@ -1,0 +1,110 @@
+#!/bin/sh
+# matugen wrapper — converts WebP to PNG and bypasses interactive TUI
+# matugen 4.x opens an interactive color picker that requires a TTY.
+# --source-color-index 0 uses the first extracted color automatically.
+# --fallback-color '#9575CD': achromatic (monochrome) wallpapers have no
+# extractable color -> matugen falls back to a default BLUE seed. Override
+# to purple (user pref). Wallpapers WITH color are unaffected.
+#
+# ACHROMATIC FLOW (SAT=0):
+#   - scheme-tonal-spot instead of scheme-content: content collapses
+#     primary=secondary to the same salmon; tonal-spot yields distinct hues
+#   - --lightness-dark=-0.5 darkens the tones
+#   - post-render hex remap: MD3 cannot produce saturated red at dark tones,
+#     so the rendered purple renders fine natively (MD3 handles purple at dark tones);
+#     only text/outline get whitened post-render.
+# Colored wallpapers keep their derived content-scheme palettes.
+REAL_MATUGEN="/etc/profiles/per-user/nate/bin/matugen"
+REAL_MAGICK="/etc/profiles/per-user/nate/bin/magick"
+
+# Check if --source-color-index is already in args
+HAS_SOURCE_INDEX=false
+for arg in "$@"; do
+  case "$arg" in
+    --source-color-index) HAS_SOURCE_INDEX=true ;;
+  esac
+done
+
+# Build extra args to bypass TUI
+EXTRA=""
+if [ "$HAS_SOURCE_INDEX" = false ]; then
+  EXTRA="--source-color-index 0"
+fi
+
+# Find the config path and the last positional arg that is a file (image)
+CONFIG=""
+IMGPATH=""
+for arg in "$@"; do
+  case "$arg" in
+    -c|--config) CONFIG="$2" ;;
+    -*) ;; # skip other flags
+    *)
+      if [ -f "$arg" ]; then
+        IMGPATH="$arg"
+      fi
+      ;;
+  esac
+done
+
+# Achromatic detection: max saturation 0 -> red remap flow
+EXTRA_LIGHTNESS=""
+if [ -n "$IMGPATH" ]; then
+  SAT=$("$REAL_MAGICK" "$IMGPATH" -resize 25% -colorspace HSL -channel G -separate -format '%[fx:maxima]' info: 2>/dev/null)
+  if [ "$SAT" = "0" ]; then
+    EXTRA_LIGHTNESS="--lightness-dark=-0.5"
+  fi
+fi
+
+# Post-render remap of salmon fallback hexes -> red ramp (achromatic only)
+remap_outputs() {
+  [ -n "$CONFIG" ] || return 0
+  grep '^output_path' "$CONFIG" | sed 's/.*"\(.*\)"$/\1/' | sed "s|^~|$HOME|" | while IFS= read -r f; do
+    [ -f "$f" ] || continue
+    sed -i "s/#d9d3da/#EAEAEA/g; s/d9d3da/EAEAEA/g; s/#5e5a61/#8C8C8C/g; s/5e5a61/8C8C8C/g" "$f"
+  done
+}
+
+# WebP conversion
+RUN_IMAGE="$IMGPATH"
+TMP=""
+if [ -n "$IMGPATH" ]; then
+  MIME=$(file --mime-type "$IMGPATH" 2>/dev/null | cut -d: -f2 | tr -d ' ')
+  if echo "$MIME" | grep -qi webp; then
+    TMP="/tmp/skwd-mt-$$.png"
+    "$REAL_MAGICK" "$IMGPATH" "$TMP"
+    RUN_IMAGE="$TMP"
+  fi
+fi
+
+# Build args; drop --type for achromatic (tonal-spot ramp), keep for colored
+DROP_TYPE=0
+[ -n "$EXTRA_LIGHTNESS" ] && DROP_TYPE=1
+ARGS=""
+SKIP_NEXT=false
+for arg in "$@"; do
+  if [ "$SKIP_NEXT" = true ]; then
+    SKIP_NEXT=false
+    continue
+  fi
+  if [ "$DROP_TYPE" = 1 ]; then
+    case "$arg" in
+      --type) SKIP_NEXT=true ;;
+      --type=*) : ;;
+      *) ARGS="$ARGS \"$arg\"" ;;
+    esac
+  else
+    ARGS="$ARGS \"$arg\""
+  fi
+done
+# Swap image path if WebP was converted
+if [ "$RUN_IMAGE" != "$IMGPATH" ] && [ -n "$IMGPATH" ]; then
+  ARGS=$(echo "$ARGS" | sed "s|\"$IMGPATH\"|\"$RUN_IMAGE\"|")
+fi
+SCHEME=""
+[ "$DROP_TYPE" = 1 ] && SCHEME="--type scheme-tonal-spot"
+
+eval "\"$REAL_MATUGEN\" $ARGS $SCHEME $EXTRA --fallback-color '#9575CD' $EXTRA_LIGHTNESS"
+RC=$?
+[ -n "$EXTRA_LIGHTNESS" ] && remap_outputs
+[ -n "$TMP" ] && rm -f "$TMP"
+exit $RC

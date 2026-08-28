@@ -1,0 +1,14 @@
+result
+result*
+*.bak*
+*.bak
+*.bak2
+.env
+*.env
+secrets/
+*.pem
+*.key
+*.crt
+*.cert
+*.p12
+*.pfx

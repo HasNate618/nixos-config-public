@@ -1,0 +1,19 @@
+/* Matugen GTK4: libadwaita apps (Nautilus, Settings) */
+@define-color matugen_surface rgba({{colors.surface.default.red}}, {{colors.surface.default.green}}, {{colors.surface.default.blue}}, 0.60);
+.background { background-color: @matugen_surface; }
+decoration { background-color: @matugen_surface; }
+@define-color window_bg_color @matugen_surface;
+@define-color window_fg_color white;
+@define-color view_bg_color @matugen_surface;
+@define-color sidebar_bg_color @matugen_surface;
+@define-color sidebar_fg_color white;
+@define-color sidebar_backdrop_color @matugen_surface;
+@define-color headerbar_bg_color @matugen_surface;
+@define-color headerbar_fg_color white;
+@define-color headerbar_backdrop_color @matugen_surface;
+@define-color card_bg_color @matugen_surface;
+@define-color dialog_bg_color @matugen_surface;
+@define-color popover_bg_color @matugen_surface;
+@define-color theme_bg_color @matugen_surface;
+@define-color theme_fg_color white;
+@define-color theme_base_color @matugen_surface;

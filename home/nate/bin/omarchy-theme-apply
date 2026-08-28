@@ -1,0 +1,50 @@
+#!/bin/bash
+# omarchy-theme-apply — copy matugen-generated theme files to app config dirs
+# Called as a skwd-wall post-processing step after all templates are rendered.
+
+OMARCHY_DIR="$HOME/.config/omarchy/current/theme"
+set -euo pipefail
+
+# btop theme
+if [ -f "$OMARCHY_DIR/btop.theme" ]; then
+  mkdir -p "$HOME/.config/btop/themes"
+  cp "$OMARCHY_DIR/btop.theme" "$HOME/.config/btop/themes/matugen.theme"
+fi
+
+# cava theme
+if [ -f "$OMARCHY_DIR/cava-config" ]; then
+  mkdir -p "$HOME/.config/cava/themes"
+  cp "$OMARCHY_DIR/cava-config" "$HOME/.config/cava/themes/matugen"
+fi
+
+# superfile theme
+if [ -f "$OMARCHY_DIR/superfile-theme.toml" ]; then
+  mkdir -p "$HOME/.config/superfile/theme"
+  cp "$OMARCHY_DIR/superfile-theme.toml" "$HOME/.config/superfile/theme/omarchy.toml"
+fi
+
+# opencode config
+if [ -f "$OMARCHY_DIR/opencode-config.json" ]; then
+  mkdir -p "$HOME/.config/opencode"
+  cp "$OMARCHY_DIR/opencode-config.json" "$HOME/.config/opencode/opencode.jsonc"
+fi
+
+# Vencord theme CSS
+if [ -f "$OMARCHY_DIR/vencord-theme.css" ]; then
+  mkdir -p "$HOME/.config/Vencord/themes"
+  cp "$OMARCHY_DIR/vencord-theme.css" "$HOME/.config/Vencord/themes/matugen-theme.css"
+fi
+
+# zathura config
+if [ -f "$OMARCHY_DIR/zathurarc" ]; then
+  mkdir -p "$HOME/.config/zathura"
+  cp "$OMARCHY_DIR/zathurarc" "$HOME/.config/zathura/zathurarc"
+fi
+
+# lazygit config
+if [ -f "$OMARCHY_DIR/lazygit-config.yml" ]; then
+  mkdir -p "$HOME/.config/lazygit"
+  cp "$OMARCHY_DIR/lazygit-config.yml" "$HOME/.config/lazygit/config.yml"
+fi
+
+exit 0

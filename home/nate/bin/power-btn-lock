@@ -1,0 +1,39 @@
+#!/usr/bin/env bash
+# Power button: lock + kbd off + dpms off
+# Sets flag for hypridle 1s listener to restore on input wake
+
+KBD_FILE="/tmp/power-btn-kbd-brightness"
+FLAG="/tmp/power-btn-active"
+
+restore() {
+    if [[ -f "$FLAG" ]]; then
+        kval=$(cat "$KBD_FILE" 2>/dev/null)
+        [[ -n "$kval" ]] && brightnessctl -d '*::kbd_backlight' set "$kval"
+        hyprctl dispatch 'hl.dsp.dpms({ action = "enable" })'
+        rm -f "$FLAG"
+    fi
+}
+
+trap restore EXIT
+
+# If hypridle is disabled, just lock — no kbd/dpms tricks
+if ! systemctl --user is-active hypridle >/dev/null 2>&1; then
+    hyprlock --immediate-render
+    exit 0
+fi
+
+# Save + turn off kbd (skip if already 0 from previous press)
+cur=$(brightnessctl -d '*::kbd_backlight' get)
+if [[ "$cur" != "0" ]]; then
+    echo "$cur" > "$KBD_FILE"
+fi
+brightnessctl -d '*::kbd_backlight' set 0
+
+# Turn off display via DPMS
+hyprctl dispatch 'hl.dsp.dpms({ action = "disable" })'
+
+# Set flag for hypridle to restore on wake
+touch "$FLAG"
+
+# Lock screen (blocks until unlock)
+hyprlock --immediate-render

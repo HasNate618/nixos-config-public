@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+# Called by hypridle on-resume when power button flag is set
+FLAG="/tmp/power-btn-active"
+KBD_FILE="/tmp/power-btn-kbd-brightness"
+
+if [[ -f "$FLAG" ]]; then
+    # Restore kbd
+    kval=$(cat "$KBD_FILE" 2>/dev/null)
+    [[ -n "$kval" ]] && brightnessctl -d '*::kbd_backlight' set "$kval"
+    # Restore display via DPMS
+    hyprctl dispatch 'hl.dsp.dpms({ action = "enable" })'
+    # Clear flag
+    rm -f "$FLAG"
+fi

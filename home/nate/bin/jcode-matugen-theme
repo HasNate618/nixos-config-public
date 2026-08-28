@@ -1,0 +1,60 @@
+#!/bin/sh
+# jcode-matugen-theme — merge matugen-rendered [display.colors] into
+# ~/.jcode/config.toml. jcode's TUI reinstall the palette whenever the config
+# cache reloads (patched into jcode: refresh_keybindings_if_config_reloaded
+# calls theme_detect::init_palette on config change), so a running jcode
+# recolors live within ~500ms — no restart, no debug-command typing.
+#
+# POSIX sh + awk only (no bashisms): skwd-wall runs reload scripts via `sh`.
+# Comment/blank lines from the fragment are dropped on merge (and stale ones
+# above the section removed), so repeated wallpaper changes never accumulate
+# junk inside config.toml.
+#
+# Env overrides (for testing):
+#   JCODE_HOME              — config dir containing config.toml (default: ~/.jcode)
+#   JCODE_MATUGEN_FRAGMENT  — rendered fragment path (default: ~/.cache/jcode/matugen-colors.toml)
+
+set -eu
+
+CONFIG="${JCODE_HOME:-$HOME/.jcode}/config.toml"
+FRAGMENT="${JCODE_MATUGEN_FRAGMENT:-$HOME/.cache/jcode/matugen-colors.toml}"
+
+[ -f "$FRAGMENT" ] || exit 0
+[ -f "$CONFIG" ] || exit 0
+
+TMP="${CONFIG}.tmp.$$"
+trap 'rm -f "$TMP"' EXIT HUP INT TERM
+
+awk '
+  FNR == NR {
+    if ($0 !~ /^[[:space:]]*#/ && $0 !~ /^[[:space:]]*$/) { frag[nfrag++] = $0 }
+    next
+  }
+  /^[[:space:]]*#/ && !in_colors {
+    pending[pn++] = $0
+    next
+  }
+  /^[[:space:]]*\[display\.colors\]/ {
+    in_colors = 1
+    found = 1
+    pn = 0
+    for (i = 0; i < nfrag; i++) print frag[i]
+    next
+  }
+  in_colors && /^[[:space:]]*\[/ { in_colors = 0 }
+  {
+    if (!in_colors) {
+      for (i = 0; i < pn; i++) print pending[i]
+      pn = 0
+      print
+    }
+  }
+  END {
+    if (!found) {
+      print ""
+      for (i = 0; i < nfrag; i++) print frag[i]
+    }
+  }
+' "$FRAGMENT" "$CONFIG" > "$TMP" || exit 1
+
+mv "$TMP" "$CONFIG"

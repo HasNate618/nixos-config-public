@@ -1,0 +1,17 @@
+user_pref("pdfjs.disabled", true);
+user_pref("browser.download.open_pdf_attachments_inline", false);
+user_pref("mod.sameerasw.zen_transparency_color", "#12141226");
+user_pref("mod.sameerasw.zen_bg_color_enabled", true);
+user_pref("zen.widget.windows.acrylic", false);
+user_pref("browser.tabs.allow_transparent_browser", true);
+user_pref("widget.transparent-windows", true);
+user_pref("zen.widget.linux.transparency", true);
+user_pref("zen.theme.gradient.show-custom-colors", true);
+user_pref("marionette.enabled", true);
+user_pref("marionette.port", 2828);
+user_pref("marionette.debugging.clicktostart", false);
+user_pref("toolkit.automation.force_dismiss", true);
+user_pref("zen.view.compact.enable-at-startup", false);
+user_pref("zen.view.compact.hide-toolbar", true);
+user_pref("devtools.chrome.enabled", true);
+user_pref("devtools.debugger.remote-enabled", true);
