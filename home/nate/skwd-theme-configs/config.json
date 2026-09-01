@@ -164,10 +164,10 @@
       "reload": "pkill -SIGUSR2 opencode 2>/dev/null || true"
     },
     {
-      "_comment": "neovim colorscheme for aether.nvim hot-reload (watched via omarchy path)",
+      "_comment": "neovim colorscheme for aether.nvim hot-reload",
       "name": "neovim",
       "template": "neovim.lua",
-      "output": "~/.config/omarchy/current/theme/neovim.lua"
+      "output": "~/.config/nvim/theme/matugen.lua"
     },
     {
       "_comment": "Hyprland window borders — accent active, darkened accent inactive",

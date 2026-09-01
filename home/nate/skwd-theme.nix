@@ -10,7 +10,15 @@
   xdg.configFile."skwd-wall/data/matugen/templates/hyprland-group-border-color".source = ./skwd-theme-configs/templates/hyprland-group-border-color;
   xdg.configFile."skwd-wall/data/matugen/templates/foot-colors.conf" = { force = true; source = ./skwd-theme-configs/templates/foot-colors.conf; };
   xdg.configFile."skwd-wall/data/matugen/templates/gtk-css.css" = { force = true; source = ./skwd-theme-configs/templates/gtk-css.css; };
+
+  # skwd-wall scripts (post-processing and reload helpers)
   xdg.configFile."skwd-wall/scripts/patch-monotheme.sh" = { force = true; executable = true; source = ./skwd-theme-configs/scripts/patch-monotheme.sh; };
+  xdg.configFile."skwd-wall/scripts/bg-sat-boost.py" = { force = true; executable = true; source = ./skwd-theme-configs/scripts/bg-sat-boost.py; };
+  xdg.configFile."skwd-wall/scripts/reload-kde.sh" = { force = true; executable = true; source = ./skwd-theme-configs/scripts/reload-kde.sh; };
+  xdg.configFile."skwd-wall/scripts/reload-niri.sh" = { force = true; executable = true; source = ./skwd-theme-configs/scripts/reload-niri.sh; };
+  xdg.configFile."skwd-wall/scripts/reload-spicetify.sh" = { force = true; executable = true; source = ./skwd-theme-configs/scripts/reload-spicetify.sh; };
+  xdg.configFile."skwd-wall/scripts/reload-zen.sh" = { force = true; executable = true; source = ./skwd-theme-configs/scripts/reload-zen.sh; };
+  xdg.configFile."skwd-wall/scripts/zen-red-scale.py" = { force = true; executable = true; source = ./skwd-theme-configs/scripts/zen-red-scale.py; };
 
   # matugen wrapper for skwd-wall — converts WebP to PNG, bypasses interactive TUI
   home.packages = with pkgs; [

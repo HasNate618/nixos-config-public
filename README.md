@@ -14,61 +14,61 @@ The previous setup was Debian with Docker Compose. Config drift crept in as pack
 
 ## Architecture
 
-### Flake structure
+### System architecture
 
+```mermaid
+flowchart TB
+    subgraph clients["Clients"]
+        flow["Desktop (flow)<br/>i9-13900H · RTX 4060 · Hyprland"]
+        remote["Remote devices<br/>Tailscale mesh"]
+        lan["Home LAN<br/>limited access"]
+    end
+
+    subgraph home["Homelab (home) — i5-6600K · GTX 960 · Docker"]
+        caddy["Caddy reverse proxy"]
+        infra["Core infra<br/>PostgreSQL · Redis · AdGuard · CrowdSec"]
+        access["Access<br/>Forgejo · Nextcloud · Vaultwarden"]
+        media["Media<br/>Jellyfin · Immich · *arr stack"]
+        ai["AI platform<br/>Open WebUI · Bifrost · Trawl"]
+        mon["Monitoring<br/>Glance · Uptime Kuma · Netdata · ntfy"]
+    end
+
+    nas["Synology NAS<br/>media · photos · backups"]
+
+    remote -->|"encrypted VPN, no public ports"| caddy
+    flow --> home
+    lan -->|"DNS-filtered"| caddy
+    caddy --> access & media & ai & mon
+    infra --> access & media & ai & mon
+    home --> nas
 ```
-flake.nix                     # Root, defines three hosts: flow, home, live-usb
-flake.lock                    # Locked nixpkgs and flake inputs
-.sops.yaml                    # SOPS age recipient config
-hosts/
-  nixos/                      # Desktop host (ROG Flow X16)
-    default.nix               # NVIDIA PRIME, ASUS EC power tuning, Hyprland, Tailscale
-    hardware-configuration.nix
-  live-usb/                   # Installer ISO (Hyprland live desktop)
-    default.nix
-  home/                       # Homelab server (i5-6600K)
-    default.nix
-    hardware-configuration.nix
-modules/
-  nixos/                      # Desktop modules
-    core.nix                  # Nix settings, user, journald, fstrim
-    networking.nix            # NetworkManager + iwd, firewall
-    services.nix              # openssh, fail2ban
-    packages.nix              # Desktop CLI tools
-    hyprland.nix              # Compositor, SDDM, PipeWire
-    hyprland-055-overlay.nix  # Pins Hyprland 0.55.4 (foot blur regression in 0.56)
-    keyd.nix                  # Keyboard remapping (Corne + arrow layer)
-    grub.nix                  # GRUB theme
-    steam.nix                 # Steam, Proton, GameMode
-    nordvpn.nix               # NordVPN WireGuard daemon
-    power-unbind.nix          # USB/Thunderbolt wake guards
-    btop-intel-gpu.nix        # btop Intel GPU panel
-    llama-cpp.nix             # Local LLM inference
-    matugen-hook.nix          # Matugen theme hook (LD_PRELOAD)
-    quickshell-overlay.nix    # Quickshell desktop bar overlay
-    opencode-overlay.nix      # opencode coding agent overlay
-    psvr2-vr.nix              # PSVR2 VR via Monado fork
-  server/                     # Homelab modules
-    infra/                    # core, networking, services, packages,
-                              #   infrastructure (Postgres + Redis), dns,
-                              #   secrets, security, docker-networks, alx-fix
-    access/                   # proxy (Caddy), forgejo, nextcloud,
-                              #   collabora, vaultwarden
-    ai/                       # bifrost, crawl4ai, open-webui, open-terminal,
-                              #   degoog, trawl, searxng, excalidraw,
-                              #   excalidraw-mcp, whisper, brightspace-mcp,
-                              #   campus
-    media/                    # jellyfin, arr-stack, immich
-    monitor/                  # glance, uptime-kuma, netdata, ntfy
-    pdf-extractor.nix         # Cohere Parse web UI
-    pdf-ocr.nix               # PP-OCRv6 local OCR + VLM
-    pdf-parse.nix             # Cohere Parse + PyMuPDF service
-    bentopdf.nix              # Client-side PDF toolkit
-  shared/                     # Shared package set
-compose/                      # Docker Compose sources (pdf-parse)
-home/                         # Home-manager config (desktop only)
-secrets/                      # SOPS-encrypted, not tracked
-scripts/                      # Audit and maintenance scripts
+
+### Configuration structure
+
+Two NixOS hosts (`flow`, `home`) and one home-manager profile, all driven from a single flake:
+
+```mermaid
+flowchart LR
+    subgraph repo["Git repo"]
+        flake["flake.nix<br/>inputs · nixosConfigurations"]
+        hosts["hosts/<br/>flow/ · home/"]
+        mods["modules/<br/>nixos/ · server/ · shared/"]
+        hm["home/nate/<br/>desktop dotfiles & tooling"]
+        secrets["secrets/<br/>SOPS-encrypted age keys"]
+    end
+
+    subgraph deploy["Deploy"]
+        rebuild["nixos-rebuild switch<br/>atomic · rollback-safe"]
+    end
+
+    flow["flow - desktop<br/>Hyprland · NVIDIA · llama.cpp"]
+    homehost["home - homelab<br/>~35 Docker services"]
+
+    flake --> hosts & mods & hm & secrets
+    repo --> rebuild
+    rebuild --> flow & homehost
+    mods --> flow & homehost
+    hm --> flow
 ```
 
 ### Services
@@ -85,17 +85,58 @@ Monitoring: Glance, Uptime Kuma, Netdata, ntfy. Dashboards, uptime monitoring, s
 
 PDF pipeline: pdf-extractor, pdf-ocr, pdf-parse, bentopdf. Document parsing, local OCR, and a Cohere-Parse-compatible service built from source in the repo.
 
-### Key design decisions
+### Security
 
-DNS-based access control. I replaced Authelia SSO with Tailscale-aware DNS. Services are reachable only by Tailscale-connected devices. Smart TVs on the local network get limited access (Jellyfin only).
+```mermaid
+flowchart TB
+    internet["Internet"]
 
-CrowdSec and Caddy integration. CrowdSec reads Caddy access logs and blocks attackers at the reverse proxy. Real-time intrusion prevention.
+    subgraph clients["Clients"]
+        lan["LAN devices<br/>router DNS → dnsmasq"]
+        remote["Tailscale devices<br/>tailnet DNS override"]
+        docker["Docker containers<br/>host loopback resolver"]
+    end
 
-Gluetun for VPN isolation. QBitTorrent and the web scraping tools route through NordVPN in a dedicated container. One service crashing cannot take down the server.
+    subgraph dnscontrol["DNS control plane — AdGuard Home"]
+        adguard["AdGuard Home<br/>network-wide resolver"]
+        filter["Filtering · DNSSEC · DoH upstream"]
+        rewrite["*.home.lab rewrites<br/>remote → tailnet IP"]
+        dnsmasq["dnsmasq split-horizon<br/>LAN *.home.lab → Caddy LAN IP"]
+        querylog["Query logging · statistics"]
+    end
 
-sops-nix for secrets. Database passwords, API keys, and VPN credentials are encrypted at rest and decrypted at boot. No plaintext secrets in the repository.
+    subgraph zerotrust["Zero-trust access"]
+        ts["Tailscale mesh<br/>no port forwarding"]
+    end
 
-Split-horizon DNS. AdGuard Home serves DNS locally. Tailscale enables remote access without port forwarding. DNS rewrites point `*.home.lab` at the Tailscale IP.
+    subgraph perimeter["Perimeter defense"]
+        caddy["Caddy reverse proxy<br/>Jellyfin-only on LAN IP"]
+        cs["CrowdSec IDS<br/>Caddy logs → IP bans"]
+    end
+
+    subgraph isolation["Service isolation"]
+        glu["Gluetun VPN container<br/>qBittorrent · scrapers only"]
+        dnet["Docker networks<br/>scoped connectivity"]
+    end
+
+    subgraph secretsmgmt["Secrets at rest"]
+        sops["sops-nix<br/>age-encrypted · decrypted at boot"]
+    end
+
+    internet -.->|"direct HTTP blocked"| caddy
+    lan --> dnsmasq --> adguard
+    remote --> ts --> adguard
+    docker --> adguard
+    adguard --> filter & rewrite & querylog
+    rewrite --> caddy
+    dnsmasq --> caddy
+    caddy --> cs
+    caddy --> dnet
+    dnet --> glu
+    sops --> dnet
+```
+
+AdGuard Home is the security control plane, not just an ad blocker. Every LAN, Tailscale, and Docker client resolves through it. It filters malicious and tracker domains, validates DNSSEC, and sends upstream queries over DoH. DNS rewrites for `*.home.lab` replace Authelia SSO: remote clients only reach services when Tailscale is connected and AdGuard returns the tailnet IP. On the LAN, dnsmasq provides split-horizon answers so `*.home.lab` resolves to Caddy's LAN address while everything else still flows through AdGuard for filtering. CrowdSec handles HTTP-layer intrusion prevention; Gluetun isolates torrent and scraper egress.
 
 ## Custom tools
 
@@ -106,8 +147,6 @@ Trawl. A web scraping and search API built on crawl4ai and SearXNG. It returns c
 GPU power cap. The RTX 4060 was locked to 55W by ASUS firmware, well below its rated wattage. NVIDIA's own `nvidia-powerd` was blocked by the SBIOS unless the thermal policy was set to Performance before it initialized. The fix was a chain of boot services that write the ASUS EC power values (dynamic boost budget, CPU package limits) before `nvidia-powerd` starts, plus tuning the RAPL MMIO power domain directly and declaring the values in `asusd.ron`. The GPU now holds around 87W under load.
 
 Platform profile switching. A 15-second timer watches the ACPI platform profile and switches the display between 60Hz on battery and 240Hz on AC, syncs TLP power source, and corrects CPU limits that leak in when the quiet profile flips. It is change-gated so an unchanged tick exits in about a millisecond instead of running a full pipeline every loop, which mattered because the old unconditional poll kept the CPU out of deep sleep states.
-
-Mini-LED lifecycle. The panel's multi-zone backlight is enabled before shutdown for deep blacks on dark screens and restored to single-zone on boot for text clarity. Two systemd oneshot services handle the toggle around the suspend and resume cycle.
 
 ## Hardware
 

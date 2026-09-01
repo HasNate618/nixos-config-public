@@ -57,6 +57,9 @@ in
     ./cura.nix
     ./skwd-theme.nix
     ./git.nix
+    ./herdr.nix
+    ./rog.nix
+    ./qt6ct.nix
   ];
 
   # KDE color scheme reference — points to matugen-generated SkwdMatugen.colors

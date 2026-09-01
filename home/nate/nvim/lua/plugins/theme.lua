@@ -2,7 +2,7 @@
 -- The hot-reload handler (omarchy-theme-hotreload.lua) reloads this module
 -- on `User LazyReload` to pick up matugen-generated colors.
 
-local matugen_theme_path = vim.fn.expand("~/.config/omarchy/current/theme/neovim.lua")
+local matugen_theme_path = vim.fn.expand("~/.config/nvim/theme/matugen.lua")
 
 -- Load matugen-generated aether opts if available
 local matugen_opts = {}
