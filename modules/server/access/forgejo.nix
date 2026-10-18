@@ -149,7 +149,7 @@ in
   };
   # Forgejo backup mount (CIFS to NAS)
   fileSystems."/mnt/homelab-full" = {
-    device = "//10.0.0.6/homelab";
+    device = "//10.0.0.20/homelab";
     fsType = "cifs";
     options = [ "_netdev,credentials=/etc/samba/creds,uid=0,gid=0,forceuid,forcegid,noperm,vers=3.0,noauto,x-systemd.automount,x-systemd.after=network-online.target x-systemd.after=samba-creds-sync.service,x-systemd.mount-timeout=30" ];
   };

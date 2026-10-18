@@ -1,6 +1,6 @@
 # Nextcloud — file sync and sharing
 # Native NixOS module with PostgreSQL + Redis + Caddy reverse proxy
-# Data lives on NAS mount at //10.0.0.6/homelab/cloud
+# Data lives on NAS mount at //10.0.0.20/homelab/cloud
 { config, lib, pkgs, ... }:
 
 {
@@ -12,7 +12,7 @@
 
   # Mount NAS cloud data at Nextcloud's default data directory
   fileSystems."/var/lib/nextcloud/data" = {
-    device = "//10.0.0.6/homelab/cloud";
+    device = "//10.0.0.20/homelab/cloud";
     fsType = "cifs";
     options = [ "_netdev,credentials=/etc/samba/creds,uid=nextcloud,gid=nextcloud,forceuid,forcegid,noperm,dir_mode=0770,file_mode=0770,vers=3.0,x-systemd.automount,noauto,x-systemd.after=network-online.target x-systemd.after=samba-creds-sync.service,x-systemd.mount-timeout=30" ];
   };

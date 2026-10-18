@@ -36,7 +36,7 @@ in
           --cpus 2.0 \
           --pids-limit 200 \
           -e WEBUI_URL="http://webui.home.lab" \
-          -e "CORS_ALLOW_ORIGIN=http://webui.home.lab;http://home.lab;http://home;http://10.0.0.45" \
+          -e "CORS_ALLOW_ORIGIN=http://webui.home.lab;http://home.lab;http://home;http://10.0.0.10" \
           -e WEBUI_SESSION_COOKIE_SECURE="false" \
           -e WEBUI_AUTH_COOKIE_SECURE="false" \
           -e TERMINAL_SERVER_CONNECTIONS='[{"id": "local", "name": "Home Terminal", "url": "http://open-terminal:8000", "api_key": "'"$(cat ${config.sops.secrets."open-terminal-api-key".path})"'", "enabled": true}]' \

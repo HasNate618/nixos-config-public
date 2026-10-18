@@ -20,9 +20,9 @@
       IPv6AcceptRA = true;
     };
     # Dedicated LAN DNS address for the split-horizon resolver (dnsmasq in dns.nix).
-    # Router DHCP hands out 10.0.0.46 as DNS to LAN devices.
+    # Router DHCP hands out 10.0.0.11 as DNS to LAN devices.
     addresses = [
-      { Address = "10.0.0.46/24"; }
+      { Address = "10.0.0.11/24"; }
     ];
     linkConfig.RequiredForOnline = true;
   };

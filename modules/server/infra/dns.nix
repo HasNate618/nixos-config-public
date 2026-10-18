@@ -13,14 +13,14 @@
       };
 
       dns = {
-        # Explicit binds instead of 0.0.0.0 — frees 10.0.0.46:53 for the
+        # Explicit binds instead of 0.0.0.0 — frees 10.0.0.11:53 for the
         # LAN split-horizon resolver (dnsmasq below).
-        #   10.0.0.45    = LAN clients (get tailnet-IP answers via rewrites)
+        #   10.0.0.10    = LAN clients (get tailnet-IP answers via rewrites)
         #   100.64.0.10 = Tailscale clients (tailnet DNS override)
         #   127.0.0.1    = host + Docker embedded DNS (containers forward via host loopback)
         # NOTE: if a new Docker bridge network is created, containers on it
         # still resolve via 127.0.0.1 (embedded DNS) — no per-gateway binds needed.
-        bind_hosts = [ "10.0.0.45" "100.64.0.10" "127.0.0.1" ];
+        bind_hosts = [ "10.0.0.10" "100.64.0.10" "127.0.0.1" ];
         port = 53;
         upstream_dns = [
           "https://dns.quad9.net/dns-query"
@@ -50,7 +50,7 @@
   };
 
   # LAN split-horizon resolver. LAN devices (no Tailscale) point at
-  # 10.0.0.46; it answers *.home.lab -> 10.0.0.45 (Caddy's LAN IP) and
+  # 10.0.0.11; it answers *.home.lab -> 10.0.0.10 (Caddy's LAN IP) and
   # forwards everything else to AdGuard so LAN users keep ad-blocking.
   # Remote/Tailscale clients are unaffected (they still query AdGuard's
   # tailnet IP and get 100.64.0.10 answers).
@@ -59,21 +59,21 @@
     resolveLocalQueries = false;  # must be false — module would also bind 127.0.0.1:53 (AdGuard conflict)
     settings = {
       "bind-interfaces" = true;
-      "listen-address" = "10.0.0.46";
+      "listen-address" = "10.0.0.11";
       "no-resolv" = true;
       # /etc/hosts contains "100.64.0.10 home.lab" (host-local workaround);
       # without no-hosts it overrides the address directive for the bare
       # domain. LAN clients must get the LAN IP, so ignore hosts entirely.
       "no-hosts" = true;
-      "server" = [ "10.0.0.45" ];
+      "server" = [ "10.0.0.10" ];
       # /.home.lab/ (≡ /home.lab/) matches the bare domain AND subdomains;
       # the real gotcha was /etc/hosts, handled by no-hosts above
-      "address" = [ "/.home.lab/10.0.0.45" ];
+      "address" = [ "/.home.lab/10.0.0.10" ];
       "cache-size" = 1000;
     };
   };
 
-  # dnsmasq must start after 10.0.0.46 is up (bind-interfaces).
+  # dnsmasq must start after 10.0.0.11 is up (bind-interfaces).
   # wait-online (anyInterface) guarantees the wired link + addresses.
   # Restart=always + no start limit: a transient bind failure (e.g. DHCP
   # renew reconfig) self-heals instead of hitting start-limit-hit.

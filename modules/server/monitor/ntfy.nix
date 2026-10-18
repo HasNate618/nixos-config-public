@@ -35,7 +35,7 @@ in
           --pids-limit 25 \
           -p 127.0.0.1:8085:80 \
           -v /var/lib/ntfy:/var/cache/ntfy \
-          -e TZ=America/Toronto \
+          -e TZ=UTC \
           -e NTFY_BASE_URL=http://ntfy.home.lab \
           binwiederhier/ntfy:latest serve
       '';

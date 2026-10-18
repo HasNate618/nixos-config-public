@@ -1,6 +1,6 @@
 # Jellyfin — Media server
 # Docker container (like Bifrost/crawl4ai — oci-containers uses podman which can't see Docker networks)
-# Media on NAS at //10.0.0.6/homelab/media
+# Media on NAS at //10.0.0.20/homelab/media
 { config, lib, pkgs, ... }:
 
 let
@@ -12,7 +12,7 @@ in
 
   # Mount NAS media share (regular mount — NAS is local LAN, always available)
   fileSystems."/srv/homelab/data/nas/media" = {
-    device = "//10.0.0.6/homelab/media";
+    device = "//10.0.0.20/homelab/media";
     fsType = "cifs";
     options = [ "_netdev,credentials=/etc/samba/creds,uid=1000,gid=1000,forceuid,forcegid,noperm,dir_mode=0775,file_mode=0664,vers=3.0,noauto,x-systemd.automount,x-systemd.after=network-online.target x-systemd.after=samba-creds-sync.service,x-systemd.mount-timeout=30" ];
   };
@@ -67,13 +67,13 @@ in
           -v /srv/homelab/data/nas/media/movies:/media/movies \
           -v /srv/homelab/data/nas/media/tv:/media/tv \
           -v /srv/homelab/data/nas/media/music:/media/music \
-          -e TZ=America/Toronto \
+          -e TZ=UTC \
           -e JELLYFIN_CACHE_DIR=/cache \
           -e JELLYFIN_CONFIG_DIR=/config \
           -e JELLYFIN_DATA_DIR=/var/lib/jellyfin \
           -e JELLYFIN_LOG_DIR=/logs \
           -e JELLYFIN_PublishedServerUrl=https://home.lab \
-          -e JELLYFIN_ADVERTISED_IP=10.0.0.45 \
+          -e JELLYFIN_ADVERTISED_IP=10.0.0.10 \
           docker.io/jellyfin/jellyfin:latest
       '';
       ExecStop = "${docker} stop jellyfin";

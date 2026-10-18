@@ -1,6 +1,6 @@
 # *arr Stack — Media management (Sonarr, Radarr, Lidarr, Bazarr, Prowlarr, qBittorrent+Gluetun)
 # Docker containers on proxy network. Data restored from pre-NixOS backup.
-# Media on NAS at //10.0.0.6/homelab/media (mounted by jellyfin.nix)
+# Media on NAS at //10.0.0.20/homelab/media (mounted by jellyfin.nix)
 { config, lib, pkgs, ... }:
 
 let
@@ -33,7 +33,7 @@ let
   '';
 
   commonEnv = {
-    TZ = "America/Toronto";
+    TZ = "UTC";
     PUID = toString uid;
     PGID = toString gid;
   };
@@ -256,7 +256,7 @@ in
           -e SOCKS5_ENABLED=on \
           -e SERVER_COUNTRIES=Canada \
           -e SOCKS5_LISTENING_ADDRESS=:1080 \
-          -e TZ=America/Toronto \
+          -e TZ=UTC \
           qmcgaw/gluetun:latest
       '';
       ExecStop = "${docker} stop gluetun";
@@ -289,7 +289,7 @@ in
           --cpus 2.0 \
           -v ${dataDir}/qbittorrent:/config \
           -v ${downloadsDir}:/downloads \
-          -e TZ=America/Toronto \
+          -e TZ=UTC \
           -e PUID=${toString uid} \
           -e PGID=${toString gid} \
           -e WEBUI_PORT=8080 \
@@ -372,7 +372,7 @@ in
           --pids-limit 200 \
           -p 127.0.0.1:8191:8191 \
           -e LOG_LEVEL=info \
-          -e TZ=America/Toronto \
+          -e TZ=UTC \
           -e BROWSER_ARGS="--no-sandbox" \
           ghcr.io/flaresolverr/flaresolverr:latest
       '';
@@ -414,7 +414,7 @@ in
           -e SOCKS5_ENABLED=on \
           -e SOCKS5_LISTENING_ADDRESS=:1080 \
           -e SERVER_COUNTRIES=Netherlands \
-          -e TZ=America/Toronto \
+          -e TZ=UTC \
           qmcgaw/gluetun:latest
       '';
       ExecStop = "${docker} stop gluetun-search";
@@ -457,7 +457,7 @@ in
             -e DOT=on -e HTTPPROXY=on -e DNS_ADFILTER_BLOCK_ENABLED=on \
             -e SOCKS5_ENABLED=on -e SOCKS5_LISTENING_ADDRESS=:1080 \
             -e SERVER_HOSTNAMES="$HOSTNAME" \
-            -e TZ=America/Toronto \
+            -e TZ=UTC \
             qmcgaw/gluetun:latest >/dev/null
           ok=0
           for i in $(seq 1 20); do

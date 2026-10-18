@@ -3,7 +3,7 @@
 # HTTP only — Tailscale encrypts the wire, no cert management needed
 # LAN: http://home.lab (port 80)
 # Tailscale: http://home.lab via split DNS → 100.64.0.10
-# 10.0.0.45 only serves /jellyfin for smart TVs
+# 10.0.0.10 only serves /jellyfin for smart TVs
 { pkgs, lib, config, ... }:
 
 let
@@ -26,7 +26,7 @@ let
     }
 
     # Smart TV access — ONLY /jellyfin on the IP
-    http://10.0.0.45 {
+    http://10.0.0.10 {
       handle /jellyfin* {
         uri strip_prefix /jellyfin
         reverse_proxy 127.0.0.1:8096

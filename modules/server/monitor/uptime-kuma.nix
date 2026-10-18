@@ -39,7 +39,7 @@ in
           --pids-limit 50 \
           -p 127.0.0.1:3002:3001 \
           -v /var/lib/uptime-kuma:/app/data \
-          -e TZ=America/Toronto \
+          -e TZ=UTC \
           louislam/uptime-kuma:latest
       '';
       ExecStop = "${docker} stop uptime-kuma";

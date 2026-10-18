@@ -54,7 +54,7 @@
 
   system.stateVersion = "26.05";
 
-  time.timeZone = "America/Toronto";
+  time.timeZone = "UTC";
 
   i18n.defaultLocale = "en_CA.UTF-8";
 

@@ -34,7 +34,7 @@ in
   fileSystems = lib.mapAttrs' (share: mountName: {
     name = "/mnt/nas/${mountName}";
     value = {
-      device = "//10.0.0.6/${share}";
+      device = "//10.0.0.20/${share}";
       fsType = "cifs";
       options = [ "_netdev,credentials=/etc/samba/creds-ne,vers=3.0,sec=ntlmssp,uid=1000,gid=1000,forceuid,forcegid,noperm,dir_mode=0775,file_mode=0664,x-systemd.after=network-online.target,x-systemd.mount-timeout=30" ];
     };
@@ -70,7 +70,7 @@ in
           --pids-limit 50 \
           -v /mnt/nas:/mnt/nas:ro \
           -v /var/lib/filebrowser/filebrowser.db:/database/filebrowser.db \
-          -e TZ=America/Toronto \
+          -e TZ=UTC \
           filebrowser/filebrowser:latest \
           --root /mnt/nas \
           --address 127.0.0.1 \
