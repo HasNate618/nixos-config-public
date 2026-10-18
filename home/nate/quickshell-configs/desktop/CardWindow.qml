@@ -25,6 +25,15 @@ PanelWindow {
     required property var theme
 
     property bool revealed: false
+    // Reveal motion: "scale" (default — scale from the anchor) or "nier"
+    // (notification-style slab slide from the right + curtain wipe).
+    property string revealStyle: "scale"
+    // When false, the "scale" reveal is instant: the _reveal Behavior is
+    // disabled so the card opens/closes on one frame. Used by surfaces in
+    // focus mode, which is a flat, motionless mode. No effect on "nier".
+    property bool revealAnimated: true
+    property real _slideX: 0
+    property bool _nierShown: false
     property real cardWidth: 460
     // -1 -> auto-size from content implicit height; otherwise fixed.
     property real cardHeight: -1
@@ -54,7 +63,7 @@ PanelWindow {
 
     default property alias bodyData: bodyContainer.data
 
-    visible: revealed || _reveal > 0.001
+    visible: revealed || _nierShown || _reveal > 0.001
     color: "transparent"
     anchors { top: true; bottom: true; left: true; right: true }
     exclusionMode: ExclusionMode.Ignore
@@ -71,6 +80,15 @@ PanelWindow {
             // visible=true confirms — same pattern as Bar init.
             card.screen = theme.popupScreen;
         }
+        if (card.revealStyle !== "nier") return;
+        if (revealed) {
+            card._nierShown = true;
+            nierExit.stop();
+            nierEnter.start();
+        } else if (card._nierShown) {
+            nierEnter.stop();
+            nierExit.start();
+        }
     }
 
     // Bind to the triggering bar's screen so the popup appears on the
@@ -78,6 +96,7 @@ PanelWindow {
 
     property real _reveal: revealed ? 1 : 0
     Behavior on _reveal {
+        enabled: card.revealAnimated
         NumberAnimation {
             duration: card.revealed ? 220 : 140
             easing.type: card.revealed ? Easing.OutCubic : Easing.InCubic
@@ -93,7 +112,9 @@ PanelWindow {
         id: surface
         width: card.cardWidth
         height: card.cardHeight > 0 ? card.cardHeight : (bodyCol.implicitHeight + 34)
-        color: Qt.rgba(card.theme.paper.r * 0.5, card.theme.paper.g * 0.5, card.theme.paper.b * 0.5, 1.0)
+        color: card.theme.focusMode
+               ? card.theme.paper
+               : Qt.rgba(card.theme.paper.r * 0.5, card.theme.paper.g * 0.5, card.theme.paper.b * 0.5, 0.98)
         border.color: card.theme.sep
         border.width: 1
         radius: card.theme.cornerRadius
@@ -115,7 +136,9 @@ PanelWindow {
                                      card.anchorBarY - height / 2));
         }
 
-        transform: Scale {
+        transform: [
+            Translate { x: card._slideX },
+            Scale {
             origin.x: {
                 if (!card._anchored) return surface.width / 2;
                 if (card.anchorEdge === "left")  return 0;
@@ -128,9 +151,10 @@ PanelWindow {
                 if (card.anchorEdge === "bottom") return surface.height;
                 return Math.max(0, Math.min(surface.height, card.anchorBarY - surface.y));
             }
-            xScale: card._reveal
-            yScale: card._reveal
-        }
+            xScale: card.revealStyle === "nier" ? 1 : card._reveal
+            yScale: card.revealStyle === "nier" ? 1 : card._reveal
+            }
+        ]
 
         // Swallow clicks so the dismiss MouseArea doesn't fire on body taps.
         MouseArea { anchors.fill: parent }
@@ -224,6 +248,78 @@ PanelWindow {
                 wrapMode: Text.WordWrap
                 opacity: 0.7
             }
+        }
+
+        // NieR reveal curtain — covers the card while it slides/wipes shut.
+        Rectangle {
+            id: curtain
+            visible: card.revealStyle === "nier"
+            anchors { top: parent.top; bottom: parent.bottom; left: parent.left }
+            width: 0
+            color: card.theme.inkDeep
+            z: 99
+
+            // Scanline texture on the slab — same as the notification curtain.
+            // Plain rectangles (no Canvas): a canvas buffer can go stale
+            // between opens and showed far stronger lines on re-open.
+            Item {
+                anchors.fill: parent
+                enabled: false
+                Repeater {
+                    model: Math.max(0, Math.ceil(parent.height / 4))
+                    Rectangle {
+                        x: 0; y: index * 4 + 1
+                        width: parent.width; height: 1
+                        color: Qt.rgba(0, 0, 0, 0.02)
+                    }
+                }
+            }
+        }
+    }
+
+    // ── NieR reveal choreography (revealStyle === "nier") ──
+    SequentialAnimation {
+        id: nierEnter
+        onStarted: {
+            card._slideX = surface.width + 12;
+            curtain.width = surface.width;
+            bodyCol.opacity = 0;
+        }
+        NumberAnimation {
+            target: card; property: "_slideX"
+            from: surface.width + 12; to: 0
+            duration: card.theme.focusMode ? 0 : 320; easing.type: Easing.OutExpo
+        }
+        NumberAnimation {
+            target: curtain; property: "width"
+            from: surface.width; to: 0
+            duration: card.theme.focusMode ? 0 : 240; easing.type: Easing.OutExpo
+        }
+        NumberAnimation {
+            target: bodyCol; property: "opacity"
+            from: 0; to: 1
+            duration: card.theme.focusMode ? 0 : 140; easing.type: Easing.OutQuad
+        }
+    }
+
+    SequentialAnimation {
+        id: nierExit
+        ParallelAnimation {
+            NumberAnimation {
+                target: curtain; property: "width"
+                to: surface.width
+                duration: card.theme.focusMode ? 0 : 180; easing.type: Easing.InOutQuad
+            }
+            NumberAnimation {
+                target: card; property: "_slideX"
+                to: surface.width + 12
+                duration: card.theme.focusMode ? 0 : 300; easing.type: Easing.InExpo
+            }
+        }
+        onFinished: {
+            card._nierShown = false;
+            card._slideX = 0;
+            curtain.width = 0;
         }
     }
 }

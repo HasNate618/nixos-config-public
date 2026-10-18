@@ -1,12 +1,33 @@
 #!/bin/sh
-# Clear herdr's terminal, then kill only the CLIENT
+# Recycle the herdr CLIENT after a host-palette change.
+#
+# herdr renders palette colours at DRAW time from the host terminal colours it
+# cached at CLIENT start, so a colour change that arrives without a light/dark
+# notification leaves panes on the previous scheme (the "opaque bg, wrong
+# colour" report). Recycling the client makes it re-read the host palette.
+#
+# WHY NOT SIGWINCH: herdr >= 0.9.2 added a SIGWINCH redraw trigger that
+# re-queries the host terminal (OSC 10/11/4). That path does NOT work here —
+# foot does not answer those colour queries, so the re-query comes back empty
+# and panes keep the stale palette. Measured on herdr 0.9.5 + foot 1.27: a
+# SIGWINCH leaves the pane background byte-identical, while recycling the
+# client immediately picks up the new scheme. Do not "optimise" this back to
+# a signal without re-measuring actual pane pixels first — absence of a
+# killed client is NOT evidence that the repaint happened.
+#
+# The server owns the panes; only the client is recycled, so pane processes
+# survive. Reattach with `h`. The NAME is load-bearing: the skwd-wall
+# daemon's postProcessing list and focus-theme-render invoke it by path, and
+# that config is app-owned (not repo-managed).
+set -u
+
 SERVER_PID=$(pgrep -f "herdr server" | head -1)
 for pid in $(pgrep -x herdr); do
-  [ "$pid" = "$SERVER_PID" ] && continue
-  # Find the terminal for this client
-  TTY=$(ps -o tty= -p "$pid" 2>/dev/null | tr -d ' ')
-  if [ -n "$TTY" ] && [ "$TTY" != "?" ]; then
-    printf '\033[2J\033[H' > "/dev/$TTY" 2>/dev/null
-  fi
-  kill "$pid" 2>/dev/null
+    [ "$pid" = "$SERVER_PID" ] && continue
+    # Clear the terminal first so the reattach does not show the stale frame.
+    TTY=$(ps -o tty= -p "$pid" 2>/dev/null | tr -d ' ')
+    if [ -n "$TTY" ] && [ "$TTY" != "?" ]; then
+        printf '\033[2J\033[H' > "/dev/$TTY" 2>/dev/null
+    fi
+    kill "$pid" 2>/dev/null
 done

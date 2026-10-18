@@ -1,0 +1,85 @@
+# Main background, empty for terminal default
+theme[main_bg]=""
+
+# Main text color — neutral, never a hue
+theme[main_fg]="{{colors.on_surface.default.hex}}"
+
+# Title color for boxes — neutral (catppuccin uses main_fg here, not an accent)
+theme[title]="{{colors.on_surface.default.hex}}"
+
+# Highlight color for keyboard shortcuts — THE one loud accent
+theme[hi_fg]="{{colors.primary.default.hex}}"
+
+# Background color of selected item in processes box
+theme[selected_bg]="{{colors.surface_container.default.hex}}"
+
+# Foreground color of selected item in processes box
+theme[selected_fg]="{{colors.primary.default.hex}}"
+
+# Color of inactive/disabled text
+theme[inactive_fg]="{{colors.outline.default.hex}}"
+
+# Color of text appearing on top of graphs
+theme[graph_text]="{{colors.on_surface_variant.default.hex}}"
+
+# Background color of the percentage meters
+theme[meter_bg]="{{colors.surface_container.default.hex}}"
+
+# Misc colors for processes box
+theme[proc_misc]="{{colors.tertiary.default.hex}}"
+
+# CPU, Memory, Network, Proc box outline colors — FOUR DISTINCT hues, the way
+# hand-designed themes do it (catppuccin: Mauve / Green / Maroon / Blue).
+# Using one or two roles here is what made the boxes read as a single colour.
+theme[cpu_box]="{{colors.primary.default.hex}}"
+theme[mem_box]="{{colors.secondary.default.hex}}"
+theme[net_box]="{{colors.tertiary.default.hex}}"
+theme[proc_box]="{{colors.error.default.hex}}"
+
+# Box divider line and small boxes line color — neutral
+theme[div_line]="{{colors.outline_variant.default.hex}}"
+
+# Temperature graph (green -> yellow -> red, semantic, like catppuccin)
+theme[temp_start]="{{colors.secondary.default.hex}}"
+theme[temp_mid]="{{colors.tertiary.default.hex}}"
+theme[temp_end]="{{colors.error.default.hex}}"
+
+# CPU graph (primary -> tertiary, a cool sweep)
+theme[cpu_start]="{{colors.primary.default.hex}}"
+theme[cpu_mid]="{{colors.tertiary.default.hex}}"
+theme[cpu_end]="{{colors.primary_container.default.hex}}"
+
+# Mem/Disk free meter (secondary -> primary)
+theme[free_start]="{{colors.secondary.default.hex}}"
+theme[free_mid]="{{colors.tertiary.default.hex}}"
+theme[free_end]="{{colors.primary.default.hex}}"
+
+# Mem/Disk cached meter (tertiary -> primary)
+theme[cached_start]="{{colors.tertiary.default.hex}}"
+theme[cached_mid]="{{colors.primary.default.hex}}"
+theme[cached_end]="{{colors.primary_container.default.hex}}"
+
+# Mem/Disk available meter (tertiary -> error, warm)
+theme[available_start]="{{colors.tertiary.default.hex}}"
+theme[available_mid]="{{colors.error.default.hex}}"
+theme[available_end]="{{colors.error.default.hex}}"
+
+# Mem/Disk used meter (secondary -> primary)
+theme[used_start]="{{colors.secondary.default.hex}}"
+theme[used_mid]="{{colors.primary.default.hex}}"
+theme[used_end]="{{colors.primary_container.default.hex}}"
+
+# Download graph (tertiary -> error)
+theme[download_start]="{{colors.tertiary.default.hex}}"
+theme[download_mid]="{{colors.error.default.hex}}"
+theme[download_end]="{{colors.error.default.hex}}"
+
+# Upload graph (secondary -> primary)
+theme[upload_start]="{{colors.secondary.default.hex}}"
+theme[upload_mid]="{{colors.primary.default.hex}}"
+theme[upload_end]="{{colors.primary_container.default.hex}}"
+
+# Process box gradient (primary -> tertiary)
+theme[process_start]="{{colors.primary.default.hex}}"
+theme[process_mid]="{{colors.tertiary.default.hex}}"
+theme[process_end]="{{colors.secondary.default.hex}}"

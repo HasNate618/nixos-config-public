@@ -1,0 +1,19 @@
+--- a/src/animation/WorkspaceAnimationController.cpp
++++ b/src/animation/WorkspaceAnimationController.cpp
+@@ -136,11 +136,7 @@
+     }
+
+     if (ws->m_isSpecialWorkspace) {
+-        if (IN) {
+-            ws->m_alpha->setValueAndWarp(0.F);
+-            *ws->m_alpha = 1.F;
+-        } else {
+-            ws->m_alpha->setValueAndWarp(1.F);
+-            *ws->m_alpha = 0.F;
+-        }
++        // Keep special-workspace contents opaque; only the render offset animates.
++        // The upstream alpha transition makes the workspace look like a fade.
++        ws->m_alpha->setValueAndWarp(1.F);
+     }
+
+     if (instant) {

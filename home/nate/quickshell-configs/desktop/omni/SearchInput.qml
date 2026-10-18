@@ -46,22 +46,4 @@ Item {
         font.letterSpacing: 1
     }
 
-    // Blinking caret riding the end of the query.
-    Rectangle {
-        id: caret
-        width: 2
-        height: 16
-        color: input.omni.seal
-        anchors.verticalCenter: parent.verticalCenter
-        x: input.omni.query.length === 0
-           ? searchPrompt.x + searchPrompt.width + 10
-           : queryText.x + queryText.contentWidth + 2
-        visible: input.omni.visible_
-        SequentialAnimation on opacity {
-            running: input.omni.visible_
-            loops: Animation.Infinite
-            NumberAnimation { from: 1; to: 0.2; duration: 600; easing.type: Easing.InOutSine }
-            NumberAnimation { from: 0.2; to: 1; duration: 600; easing.type: Easing.InOutSine }
-        }
-    }
 }

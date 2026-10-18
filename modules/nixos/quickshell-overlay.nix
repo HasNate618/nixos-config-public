@@ -17,5 +17,15 @@ final: prev: {
         fi
       fi
     '';
+    # Override qtdeclarative in buildInputs to use patched version
+    buildInputs = builtins.map (dep:
+      if dep == prev.qt6.qtdeclarative
+      then prev.qt6.qtdeclarative.overrideAttrs (old: {
+        patches = (old.patches or []) ++ [
+          ./qtdeclarative-611-recursion-guard.patch
+        ];
+      })
+      else dep
+    ) (old.buildInputs or []);
   });
 }

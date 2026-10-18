@@ -1,0 +1,334 @@
+#!/usr/bin/env python3
+# focus-theme-render — render the skwd-wall integration templates from the
+# ACTIVE focus-mode colour scheme.
+#
+# While focus mode is on, the wallpaper is a flat colour, so the skwd/matugen
+# pipeline derives a fallback Material scheme (historically purple) for every
+# integration it writes — btop, cava, pi, yazi, nvim, zen, GTK, ... This
+# script re-renders those SAME templates (from the deployed template dir)
+# with colours from the focus scheme, so every app surface follows the
+# scheme exactly. It runs AFTER the pipeline has finished (see the deferred
+# call in focus-apply-scheme) so the pipeline cannot overwrite the result;
+# on focus exit the pipeline regenerates everything from the real wallpaper
+# again.
+#
+# Role mapping is SEMANTIC (see build_roles): each MD3 role takes a specific
+# scheme slot chosen for its MEANING, following base16/base24 conventions and
+# the MD3 role hierarchy. Only lightness is normalised, into the band the
+# templates were authored against.
+#
+# A template may have a "<name>-focus" variant, used in preference to the
+# shared one. That exists because the two palettes have different STRUCTURE:
+# matugen derives every role from ONE seed hue (so the roles are tonal
+# siblings), while focus mode maps distinct terminal hues semantically. A
+# template designed to show four different colours — btop's four boxes, cava's
+# gradient — reads as a mistake under matugen but as a design under focus, so
+# those two apps carry a variant instead of forcing one mapping on both.
+#
+# Template syntax: matugen's "{{colors.<role>.<variant>.<prop>}}".
+# Integrations owned elsewhere (foot) are skipped, as are reloads that are
+# destructive or would start intentionally stopped daemons. The daemon's
+# postProcessing list runs after the reloads too — herdr-kill-client in that
+# list is load-bearing: a stale herdr client keeps rendering its panes with
+# the palette it saw at startup (opaque background instead of transparent)
+# until the client is recycled.
+import colorsys
+import json
+import os
+import re
+import subprocess
+import sys
+
+HOME = os.path.expanduser("~")
+CONFIG = os.path.join(HOME, ".config", "skwd-wall-v2", "config.json")
+TEMPLATE_DIR = os.path.join(HOME, ".config", "skwd-wall-v2", "matugen", "templates")
+SCHEMES = os.path.join(HOME, ".config", "focus-mode", "schemes")
+ACTIVE = os.path.join(HOME, ".config", "focus-mode", "active")
+GUARD = os.path.join(HOME, ".cache", "focus-mode")
+
+# foot's colors.ini is written by foot-reload-colors.sh (alpha forced to 1.0,
+# which the template does not produce).
+SKIP_RENDER = {"foot"}
+
+# Reloads deliberately NOT run from a colour toggle:
+#   gtk3/gtk4 — portal restart + killing nautilus from a keypress is too
+#               destructive; files still render for newly-opened apps.
+#   swayosd  — its "reload" is pkill+respawn, which would START the daemon
+#               when it is intentionally stopped.
+SKIP_RELOAD = {"gtk3", "gtk4", "swayosd"}
+
+TOKEN = re.compile(r"\{\{colors\.([a-z_0-9]+)\.([a-z]+)\.([a-z_]+)\}\}")
+
+
+def hex_to_rgb(h):
+    h = h.lstrip("#")
+    return int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16)
+
+
+def rgb_to_hex(rgb):
+    return "#%02x%02x%02x" % tuple(max(0, min(255, int(round(c)))) for c in rgb)
+
+
+def blend(a, b, t):
+    """Blend hex a toward hex b by t (0..1)."""
+    ar, ag, ab = hex_to_rgb(a)
+    br, bg, bb = hex_to_rgb(b)
+    return rgb_to_hex((ar + (br - ar) * t, ag + (bg - ag) * t, ab + (bb - ab) * t))
+
+
+# ── Semantic role mapping ────────────────────────────────────────────────
+# Roles are mapped by MEANING, following base16/base24 semantics — the spec
+# every hand-made theme follows. base16 slot meanings:
+#
+#   base08 red      errors, deletion, "cut"
+#   base09 orange   constants, warnings
+#   base0A yellow   warnings, "read"
+#   base0B green    success, strings, "copied"
+#   base0C cyan     support, regex
+#   base0D blue     PRIMARY accent, functions
+#   base0E magenta  keywords, control
+#   base0F brown    deprecated
+#
+# The scheme files expose those as regular0-7 (base00-base07) and bright0-7
+# (base08-base0F), so the accent slots are the BRIGHT row; neutrals come from
+# the regular row.
+#
+# MD3 role      <- scheme slot
+# primary       <- bright4 (base0D blue)    the primary accent
+# secondary     <- bright5 (base0E magenta) the decorative second accent
+# tertiary      <- bright2 (base0B green)   success / third accent
+# error         <- bright1 (base08 red)     errors, reserved
+#
+# These three are chosen for maximum HUE SEPARATION, measured across all
+# schemes: blue+magenta+green keeps the closest pair 22.7 deg apart, where
+# blue+green+yellow collapsed to 19.2 (gruvbox's yellow and red sat only 19 deg
+# apart). btop assigns the four boxes four different roles, so two near-
+# identical hues there read as a rendering mistake rather than a design.
+# *_container   <- the same hues blended into the surface (a container is a
+#                  tinted surface, not a saturated fill)
+# surface*      <- background blended toward the foreground (neutrals)
+# on_surface    <- foreground (neutral text)
+# on_surface_variant <- bright0 (base03 comments grey)
+# outline*      <- bright0 blended into the background (neutral chrome)
+#
+# Hand-designed app themes give the four btop boxes FOUR DIFFERENT hues
+# (catppuccin: cpu=Mauve, mem=Green, net=Maroon, proc=Blue) and keep the
+# title/main_fg neutral. The template does the same; this mapping is what
+# supplies the distinct, meaningful hues it asks for.
+#
+# Lightness is normalised because the templates were authored against
+# matugen's dark-mode output, where every accent sits in a narrow LIGHT band
+# (primary ~0.87). Raw terminal accents are darker and break the templates'
+# contrast assumptions. Hue and relative chroma are the scheme's own.
+_ACCENT_L = 0.78        # accents (primary/secondary/tertiary)
+_ACCENT_L_ALERT = 0.72  # error sits lower so it stays visually distinct
+_CONTAINER_T = 0.72     # how far a container blends toward the background
+
+
+def _to_band(hexv, light):
+    """Keep the scheme's hue and saturation; set the lightness into the band
+    the templates were authored against."""
+    h, _l, s = colorsys.rgb_to_hls(*[c / 255.0 for c in hex_to_rgb(hexv)])
+    return rgb_to_hex(tuple(
+        c * 255 for c in colorsys.hls_to_rgb(h, light, s)
+    ))
+
+
+def pick(regular, bright, bg):
+    """The scheme's own colour for an accent role: the bright (base08-base0F)
+    slot, falling back to its regular counterpart, then to the other row."""
+    if not bright or bright == bg:
+        return regular or bg
+    return bright
+
+
+def parse_scheme(path):
+    v = {}
+    with open(path) as f:
+        for line in f:
+            line = line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            k, val = line.split("=", 1)
+            v[k.strip()] = val.strip().lstrip("#")
+    return v
+
+
+def build_roles(v):
+    bg = "#" + (v.get("background") or "181616")
+    fg = "#" + (v.get("foreground") or "c5c9c5")
+
+    def col(key):
+        val = v.get(key)
+        return ("#" + val) if val else None
+
+    regular = [col("regular%d" % i) or bg for i in range(8)]
+    bright = [col("bright%d" % i) or fg for i in range(8)]
+
+    # Semantic mapping (see the note above).
+    primary = _to_band(pick(regular[4], bright[4], bg), _ACCENT_L)
+    secondary = _to_band(pick(regular[5], bright[5], bg), _ACCENT_L)
+    tertiary = _to_band(pick(regular[2], bright[2], bg), _ACCENT_L)
+    alt_red = _to_band(pick(regular[1], bright[1], bg), _ACCENT_L_ALERT)
+
+    return {
+        "surface": bg,
+        "surface_dim": blend(bg, "#000000", 0.25),
+        "surface_bright": blend(bg, fg, 0.10),
+        "surface_container_lowest": regular[0],
+        "surface_container_low": blend(bg, fg, 0.03),
+        "surface_container": blend(bg, fg, 0.06),
+        "surface_container_high": blend(bg, fg, 0.09),
+        "surface_container_highest": blend(bg, fg, 0.12),
+        "surface_variant": blend(bg, fg, 0.08),
+        "on_surface": fg,
+        "on_background": fg,
+        "on_surface_variant": bright[0],
+        "outline": blend(bright[0], bg, 0.45),
+        "outline_variant": blend(bright[0], bg, 0.70),
+        "primary": primary,
+        "on_primary": bg,
+        "primary_container": blend(primary, bg, _CONTAINER_T),
+        # MD3: text on a container is a light tint of that container's OWN hue
+        # (tone ~90), never a foreign colour. Was alt_red — red text on a
+        # purple/blue selection background.
+        "on_primary_container": blend(primary, fg, 0.72),
+        "primary_fixed": blend(primary, bg, _CONTAINER_T),
+        "primary_fixed_dim": blend(primary, bg, 0.55),
+        "on_primary_fixed": fg,
+        "on_primary_fixed_variant": blend(primary, fg, 0.45),
+        "secondary": secondary,
+        "on_secondary": bg,
+        "secondary_container": blend(secondary, bg, _CONTAINER_T),
+        "on_secondary_container": blend(secondary, fg, 0.72),
+        "secondary_fixed": blend(secondary, bg, _CONTAINER_T),
+        "secondary_fixed_dim": blend(secondary, bg, 0.55),
+        "on_secondary_fixed": fg,
+        "on_secondary_fixed_variant": blend(secondary, fg, 0.45),
+        "tertiary": tertiary,
+        "on_tertiary": bg,
+        "tertiary_container": blend(tertiary, bg, _CONTAINER_T),
+        "on_tertiary_container": blend(tertiary, fg, 0.72),
+        "tertiary_fixed": blend(tertiary, bg, _CONTAINER_T),
+        "tertiary_fixed_dim": blend(tertiary, bg, 0.55),
+        "on_tertiary_fixed": fg,
+        "on_tertiary_fixed_variant": blend(tertiary, fg, 0.45),
+        "error": alt_red,
+        "on_error": bg,
+        "error_container": blend(alt_red, bg, _CONTAINER_T),
+        "on_error_container": blend(alt_red, fg, 0.72),
+        "inverse_surface": fg,
+        "inverse_on_surface": bg,
+        "inverse_primary": alt_red,
+        "shadow": "#000000",
+        "scrim": "#000000",
+        "surface_tint": primary,
+        "source_color": primary,
+    }
+
+
+def resolve(roles, role, prop, unknown):
+    hexv = roles.get(role)
+    if hexv is None:
+        unknown.add("colors." + role)
+        return None
+    if prop == "hex":
+        return hexv
+    if prop == "hex_stripped":
+        return hexv.lstrip("#")
+    r, g, b = hex_to_rgb(hexv)
+    return {"red": str(r), "green": str(g), "blue": str(b)}.get(prop)
+
+
+def main():
+    if not os.path.exists(GUARD):
+        print("focus-theme-render: focus mode is off — nothing to do")
+        return 0
+
+    slug = "kanagawa-dragon"
+    try:
+        slug = open(ACTIVE).read().strip() or slug
+    except OSError:
+        pass
+    scheme_path = os.path.join(SCHEMES, slug + ".conf")
+    if not os.path.exists(scheme_path):
+        print("focus-theme-render: no scheme at %s" % scheme_path, file=sys.stderr)
+        return 1
+
+    roles = build_roles(parse_scheme(scheme_path))
+    cfg = json.load(open(CONFIG))
+
+    unknown = set()
+    rendered = 0
+    reloads = []
+    for integ in cfg.get("integrations", []):
+        name = integ.get("name")
+        tmpl = integ.get("template")
+        out = integ.get("output")
+        if not name or name in SKIP_RENDER or not tmpl or not out:
+            continue
+        # Prefer a focus-only variant when one exists: some templates need a
+        # different ROLE MAPPING under focus mode than under matugen (see the
+        # module docstring — btop's four boxes and cava's gradient are designed
+        # for the scheme's distinct hues, which matugen's single-seed palette
+        # does not have). Falls back to the shared template.
+        tpath = os.path.join(TEMPLATE_DIR, tmpl + "-focus")
+        if not os.path.exists(tpath):
+            tpath = os.path.join(TEMPLATE_DIR, tmpl)
+        if not os.path.exists(tpath):
+            print("focus-theme-render: missing template %s" % tpath, file=sys.stderr)
+            continue
+        text = open(tpath).read()
+
+        def sub(m):
+            role, variant, prop = m.group(1), m.group(2), m.group(3)
+            if variant != "default":
+                unknown.add("variant:" + variant)
+                return m.group(0)
+            val = resolve(roles, role, prop, unknown)
+            return val if val is not None else m.group(0)
+
+        out_path = os.path.expanduser(out)
+        d = os.path.dirname(out_path)
+        if d:
+            os.makedirs(d, exist_ok=True)
+        body = TOKEN.sub(sub, text)
+        # The zen integration's css is consumed by the matugen-live userscript,
+        # which compensates matugen's colours for Gecko. Inside focus mode we
+        # want the RAW scheme colour instead (the wallpaper is that colour),
+        # and opaque rather than the mod's 20% tint. The template is shared
+        # with the normal pipeline, so signal the mode with a marker the
+        # userscript can see rather than changing the template.
+        if name == "zen":
+            body = "/* focus-mode: raw */\n" + body
+        with open(out_path, "w") as f:
+            f.write(body)
+        rendered += 1
+        if integ.get("reload") and name not in SKIP_RELOAD:
+            reloads.append((name, integ["reload"]))
+
+    for name, cmd in reloads:
+        try:
+            subprocess.run(cmd, shell=True, capture_output=True, timeout=30)
+        except Exception as e:
+            print("focus-theme-render: reload %s failed: %s" % (name, e), file=sys.stderr)
+
+    # Mirror the daemon's postProcessing on every colour change (lock-bg
+    # refresh + herdr-kill-client). Without the kill, herdr panes stay stuck
+    # on the previous palette — the documented reason the normal wallpaper
+    # pipeline kills the client after matugen runs.
+    for cmd in cfg.get("postProcessing", []):
+        try:
+            subprocess.run(cmd, shell=True, capture_output=True, timeout=30)
+        except Exception as e:
+            print("focus-theme-render: postProcessing failed: %s" % e, file=sys.stderr)
+
+    if unknown:
+        print("focus-theme-render: unresolved tokens: %s"
+              % ", ".join(sorted(unknown)), file=sys.stderr)
+    print("focus-theme-render: %s — %d outputs, %d reloads" % (slug, rendered, len(reloads)))
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

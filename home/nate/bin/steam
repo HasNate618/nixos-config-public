@@ -1,7 +1,12 @@
 #!/usr/bin/env bash
-# Steam wrapper — always runs on NVIDIA dGPU via PRIME offload
+# Steam wrapper — runs on NVIDIA dGPU via PRIME offload when available,
+# falls back to iGPU on battery boot (nvidia module blacklisted).
 # 12GB shader disk cache: UE4/5 titles exceed the 128MB default and
 # recompile shaders every launch -> stutter. SKIP_CLEANUP keeps entries.
 export __GL_SHADER_DISK_CACHE_SIZE=12000000000
 export __GL_SHADER_DISK_CACHE_SKIP_CLEANUP=1
-exec nvidia-offload /run/current-system/sw/bin/steam "$@"
+if [ -d /proc/driver/nvidia ] && command -v nvidia-offload >/dev/null 2>&1; then
+  exec nvidia-offload /run/current-system/sw/bin/steam "$@"
+else
+  exec /run/current-system/sw/bin/steam "$@"
+fi

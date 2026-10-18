@@ -7,6 +7,7 @@ CardWindow {
     theme: root
     revealed: root.weatherVisible
     cardWidth: 360
+    revealStyle: "nier"
     layerNamespace: "omarchy-weather"
     footer: "CLICK PLACE TO EDIT · R REFRESH · ESC"
 
@@ -67,7 +68,7 @@ CardWindow {
                     font.family: weatherPopup.root.mono
                     font.pixelSize: 11
                     font.letterSpacing: 2
-                    Behavior on color { ColorAnimation { duration: 140 } }
+                    Behavior on color { ColorAnimation { duration: root.focusMode ? 0 : 140 } }
 
                     MouseArea {
                         id: subMouse

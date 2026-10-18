@@ -48,17 +48,28 @@ Item {
             Rectangle {
                 anchors.fill: parent
                 color: row.isSelected ? rl.omni.rowSel
-                                      : rowMouse.containsMouse ? rl.omni.rowHi
+                                      : (rowMouse.containsMouse && !rl.omni._mouseBlocked) ? rl.omni.rowHi
                                                                : "transparent"
-                Behavior on color { ColorAnimation { duration: 40 } }
+                Behavior on color { ColorAnimation { duration: rl.omni.theme.focusMode ? 0 : 40 } }
             }
-            Rectangle {
-                anchors.left: parent.left
-                anchors.top: parent.top
-                anchors.bottom: parent.bottom
-                width: 2
-                color: rl.omni.seal
-                visible: row.isSelected
+            // Selection frame: corner brackets on all four corners
+            // (8px arms / 2px strokes). Animated on selection change —
+            // fade in + slide from a small inset.
+            Item {
+                id: selFrame
+                anchors.fill: parent
+                opacity: row.isSelected ? 1 : 0
+                property real inset: row.isSelected ? 0 : 3
+                Behavior on opacity { NumberAnimation { duration: rl.omni.theme.focusMode ? 0 : 110; easing.type: Easing.OutCubic } }
+                Behavior on inset { NumberAnimation { duration: rl.omni.theme.focusMode ? 0 : 150; easing.type: Easing.OutCubic } }
+                Rectangle { anchors { left: parent.left; top: parent.top; leftMargin: selFrame.inset; topMargin: selFrame.inset } width: 2; height: 8; color: rl.omni.seal }
+                Rectangle { anchors { left: parent.left; top: parent.top; leftMargin: selFrame.inset; topMargin: selFrame.inset } width: 8; height: 2; color: rl.omni.seal }
+                Rectangle { anchors { right: parent.right; top: parent.top; rightMargin: selFrame.inset; topMargin: selFrame.inset } width: 2; height: 8; color: rl.omni.seal }
+                Rectangle { anchors { right: parent.right; top: parent.top; rightMargin: selFrame.inset; topMargin: selFrame.inset } width: 8; height: 2; color: rl.omni.seal }
+                Rectangle { anchors { left: parent.left; bottom: parent.bottom; leftMargin: selFrame.inset; bottomMargin: selFrame.inset } width: 2; height: 8; color: rl.omni.seal }
+                Rectangle { anchors { left: parent.left; bottom: parent.bottom; leftMargin: selFrame.inset; bottomMargin: selFrame.inset } width: 8; height: 2; color: rl.omni.seal }
+                Rectangle { anchors { right: parent.right; bottom: parent.bottom; rightMargin: selFrame.inset; bottomMargin: selFrame.inset } width: 2; height: 8; color: rl.omni.seal }
+                Rectangle { anchors { right: parent.right; bottom: parent.bottom; rightMargin: selFrame.inset; bottomMargin: selFrame.inset } width: 8; height: 2; color: rl.omni.seal }
             }
 
             // Icon slot: tinted .desktop image when one resolves,
@@ -105,7 +116,7 @@ Item {
                     source: appImg
                     colorization: 1.0
                     colorizationColor: iconText.tint
-                    Behavior on colorizationColor { ColorAnimation { duration: 40 } }
+                    Behavior on colorizationColor { ColorAnimation { duration: rl.omni.theme.focusMode ? 0 : 40 } }
                 }
             }
             Text {
@@ -122,7 +133,7 @@ Item {
                 font.weight: row.isSelected ? Font.Medium : Font.Light
                 font.letterSpacing: 1
                 elide: Text.ElideRight
-                width: row.width - iconText.width - 30
+                width: catText.x - titleText.x - 10
             }
             Text {
                 id: starText
@@ -137,7 +148,7 @@ Item {
             }
             Text {
                 id: catText
-                visible: false
+                visible: true
                 anchors.right: parent.right
                 anchors.rightMargin: 14
                 anchors.verticalCenter: parent.verticalCenter

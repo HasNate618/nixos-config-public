@@ -1,5 +1,5 @@
 /* Matugen GTK4: libadwaita apps (Nautilus, Settings) */
-@define-color matugen_surface rgba({{colors.surface.default.red}}, {{colors.surface.default.green}}, {{colors.surface.default.blue}}, 0.60);
+@define-color matugen_surface rgba({{colors.surface.default.red}}, {{colors.surface.default.green}}, {{colors.surface.default.blue}}, @OPACITY@);
 .background { background-color: @matugen_surface; }
 decoration { background-color: @matugen_surface; }
 @define-color window_bg_color @matugen_surface;

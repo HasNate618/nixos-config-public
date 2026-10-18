@@ -10,7 +10,7 @@ return {
 			vim.api.nvim_create_autocmd("User", {
 				pattern = "LazyReload",
 				callback = function()
-					-- Unload the theme module
+					-- Unload the theme module to force fresh matugen opts read
 					package.loaded["plugins.theme"] = nil
 
 					vim.schedule(function()
@@ -19,7 +19,23 @@ return {
 							return
 						end
 
-						-- Find the theme plugin and unload it
+						-- Extract fresh matugen opts from the re-loaded spec
+						local new_opts = {}
+						for _, spec in ipairs(theme_spec) do
+							if spec[1] and spec[1] ~= "LazyVim/LazyVim" and spec.opts then
+								new_opts = spec.opts
+								break
+							end
+						end
+
+						-- Persist the new opts into aether's config so
+						-- the subsequent colorscheme command picks them up
+						local aether_ok, aether = pcall(require, "aether")
+						if aether_ok and aether.setup then
+							aether.setup(new_opts)
+						end
+
+						-- Find the theme plugin name for module unloading
 						local theme_plugin_name = nil
 						for _, spec in ipairs(theme_spec) do
 							if spec[1] and spec[1] ~= "LazyVim/LazyVim" then
@@ -34,14 +50,13 @@ return {
 							vim.cmd("syntax reset")
 						end
 
-						-- Reset background to default so colorscheme can set it properly (light themes will set to light)
+						-- Reset background to default so colorscheme can set it properly
 						vim.o.background = "dark"
 
 						-- Unload theme plugin modules to force full reload
 						if theme_plugin_name then
 							local plugin = require("lazy.core.config").plugins[theme_plugin_name]
 							if plugin then
-								-- Unload all lua modules from the plugin directory
 								local plugin_dir = plugin.dir .. "/lua"
 								require("lazy.core.util").walkmods(plugin_dir, function(modname)
 									package.loaded[modname] = nil
@@ -55,26 +70,16 @@ return {
 							if spec[1] == "LazyVim/LazyVim" and spec.opts and spec.opts.colorscheme then
 								local colorscheme = spec.opts.colorscheme
 
-								-- Load the colorscheme plugin
 								require("lazy.core.loader").colorscheme(colorscheme)
 
 								vim.defer_fn(function()
-									-- Apply the colorscheme (it will set background itself)
 									pcall(vim.cmd.colorscheme, colorscheme)
-
-									-- Force redraw to update all UI elements
 									vim.cmd("redraw!")
-
-									-- Reload transparency settings
 									if vim.fn.filereadable(transparency_file) == 1 then
 										vim.defer_fn(function()
 											vim.cmd.source(transparency_file)
-
-											-- Trigger UI updates for various plugins
 											vim.api.nvim_exec_autocmds("ColorScheme", { modeline = false })
 											vim.api.nvim_exec_autocmds("VimEnter", { modeline = false })
-
-											-- Final redraw
 											vim.cmd("redraw!")
 										end, 5)
 									end

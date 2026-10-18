@@ -1,19 +1,31 @@
 #!/usr/bin/env bash
 # Launch Steam Big Picture in Gamescope at the appropriate resolution
-# for the current display mode (docked / laptop)
+# for whichever monitor is currently focused.
 
 set -euo pipefail
 
-STATE=$(cat "$HOME/.config/display-state" 2>/dev/null || echo "laptop")
+# Detect which monitor is focused — game on whichever screen you're looking at
+FOCUSED_JSON=$(hyprctl monitors -j | jq '.[] | select(.focused == true)')
+FOCUSED_NAME=$(echo "$FOCUSED_JSON" | jq -r '.name')
+FOCUSED_MODEL=$(echo "$FOCUSED_JSON" | jq -r '.model')
 
-case "$STATE" in
-    docked)
+case "$FOCUSED_MODEL" in
+    *S3225QS*)
         # Dell S3225QS: 4K@120Hz. DLSS Performance from 4K is clean;
         # 55W RTX 4060 holds 60-70 in most titles at these settings.
         W=3840 H=2160 R=120
         ;;
-    laptop)
+    *NE160QDM*|*eDP*)
+        # Laptop screen: native 2560x1600@240Hz
         W=2560 H=1600 R=240
+        ;;
+    *)
+        # Fallback: use display-state
+        STATE=$(cat "$HOME/.config/display-state" 2>/dev/null || echo "laptop")
+        case "$STATE" in
+            docked)  W=3840 H=2160 R=120 ;;
+            laptop)  W=2560 H=1600 R=240 ;;
+        esac
         ;;
 esac
 
@@ -33,5 +45,6 @@ export __GL_SHADER_DISK_CACHE_SKIP_CLEANUP=1
 # gamescope#1707 class). Kept on the iGPU; load is cut by -r 60 + Hyprland
 # render:direct_scanout (removes Hyprland's re-composite pass).
 exec gamescope -W "$W" -H "$H" -r "$R" \
+  -O "$FOCUSED_NAME" \
   --force-grab-cursor -f --steam -- \
   steam -bigpicture

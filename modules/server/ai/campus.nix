@@ -43,8 +43,9 @@ in
           -v /home/nate/campus:/app:ro \
           -v /home/nate/campus/data:/app/data:rw \
           -v /home/nate/.hippocampus:/home/nate/.hippocampus:rw \
+          -v /home/nate/.campus:/home/nate/.campus:rw \
           -e CAMPUS_LLM_URL=http://bifrost:8080/v1 \
-          -e CAMPUS_PDF_EXTRACTOR_URL=http://pdf-extractor:8000 \
+          -e CAMPUS_PDF_EXTRACTOR_URL=http://pdf-parse:8000 \
           -e CAMPUS_NTFY_URL=http://ntfy:80 \
           -e CAMPUS_TRAWL_URL=http://trawl:8000/mcp \
           -e CAMPUS_DATA_ROOT=/srv/homelab/school \

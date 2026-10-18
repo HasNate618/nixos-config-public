@@ -14,6 +14,7 @@ in
     GTK_THEME = "MonoThemeDark";
     XDG_CURRENT_DESKTOP = "Hyprland";
     TERMCMD = "foot";
+    GTK_USE_PORTAL = "1";
     XDG_SESSION_DESKTOP = "Hyprland";
   };
 
@@ -37,7 +38,9 @@ in
   ];
 
   imports = [
+    ./theme.nix
     ./bin.nix
+    ./focus-mode.nix
     ./tmux.nix
     ./editors.nix
     ./ssh.nix
@@ -51,15 +54,20 @@ in
     ./zsh.nix
     ./fish.nix
     ./gtk.nix
+    ./qt6ct.nix
     ./dconf.nix
     ./foot.nix
     ./ghostty.nix
     ./cura.nix
-    ./skwd-theme.nix
-    ./git.nix
+    ./eden.nix
+    ./winboat.nix
     ./herdr.nix
     ./rog.nix
-    ./qt6ct.nix
+    ./skwd-theme.nix
+    ./git.nix
+    ./btop.nix
+    ./cava.nix
+    ./pi.nix
   ];
 
   # KDE color scheme reference — points to matugen-generated SkwdMatugen.colors
@@ -91,7 +99,7 @@ in
     image/webp=imv.desktop
     image/bmp=imv.desktop
     image/tiff=imv.desktop
-    image/svg+xml=imv.desktop
+    image/svg+xml=zen.desktop
 
     # video
     video/mp4=mpv.desktop
@@ -246,11 +254,18 @@ in
   }; };
 
   # Foot terminal
+  # blur=yes enables ext-background-effect-v1 on Hyprland 0.56+ — foot's
+  # blur was previously handled by the compositor by default; 0.56 makes
+  # it a client-side setting. Without this line, a transparent foot shows
+  # the desktop unblurred behind it.
   xdg.configFile."foot/foot.ini".text = ''
     font=JetBrainsMono Nerd Font:size=11
     pad=14x14
     shell=fish
     include=~/.config/foot/colors.ini
+
+    [colors-dark]
+    blur=yes
 
     [cursor]
     style=block
@@ -274,9 +289,15 @@ in
     video = [ { run = 'mpv "$1"', orphan = true, for = "unix" } ]
     audio = [ { run = 'mpv "$1"', orphan = true, for = "unix" } ]
     text = [ { run = 'nvim "$1"', block = true, for = "unix" } ]
-    markdown = [ { run = 'zen-markdown-viewer "$1"', orphan = true, for = "unix" } ]
+    markdown = [ { run = 'glow --pager "$1"', block = true, for = "unix" } ]
     extract = [ { run = 'ya pub extract --list "$@"', for = "unix" } ]
     html = [ { run = 'xdg-open "$1"', orphan = true, for = "unix" } ]
+    document = [ { run = 'libreoffice "$1"', orphan = true, for = "unix" } ]
+    spreadsheet = [ { run = 'libreoffice --calc "$1"', orphan = true, for = "unix" } ]
+    presentation = [ { run = 'libreoffice --impress "$1"', orphan = true, for = "unix" } ]
+    ebook = [ { run = 'zen "$1"', orphan = true, for = "unix" } ]
+    blender = [ { run = 'blender "$1"', orphan = true, for = "unix" } ]
+    svg = [ { run = 'imv -s full "$1"', orphan = true, for = "unix" } ]
 
     [open]
     rules = [
@@ -295,6 +316,28 @@ in
       { mime = "text/*",           use = [ "text" ] },
       { mime = "application/json", use = [ "text" ] },
       { mime = "application/xml",  use = [ "text" ] },
+      { mime = "application/vnd.openxmlformats-officedocument.wordprocessingml.document", use = [ "document" ] },
+      { mime = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", use = [ "spreadsheet" ] },
+      { mime = "application/vnd.openxmlformats-officedocument.presentationml.presentation", use = [ "presentation" ] },
+      { mime = "application/vnd.oasis.opendocument.text", use = [ "document" ] },
+      { mime = "application/vnd.oasis.opendocument.spreadsheet", use = [ "spreadsheet" ] },
+      { mime = "application/vnd.oasis.opendocument.presentation", use = [ "presentation" ] },
+      { mime = "application/msword", use = [ "document" ] },
+      { mime = "application/vnd.ms-excel", use = [ "spreadsheet" ] },
+      { mime = "application/vnd.ms-powerpoint", use = [ "presentation" ] },
+      { mime = "application/epub+zip", use = [ "ebook" ] },
+      { url = "**/*.docx", use = [ "document" ] },
+      { url = "**/*.xlsx", use = [ "spreadsheet" ] },
+      { url = "**/*.pptx", use = [ "presentation" ] },
+      { url = "**/*.doc", use = [ "document" ] },
+      { url = "**/*.xls", use = [ "spreadsheet" ] },
+      { url = "**/*.ppt", use = [ "presentation" ] },
+      { url = "**/*.epub", use = [ "ebook" ] },
+      { mime = "application/x-blender", use = [ "blender" ] },
+      { url = "**/*.blend",  use = [ "blender" ] },
+      { url = "**/*.blend1", use = [ "blender" ] },
+      { mime = "image/svg+xml",  use = [ "svg" ] },
+      { url = "**/*.svg",     use = [ "svg" ] },
       { mime = "application/pdf",  use = [ "pdf" ] },
       { mime = "image/*",          use = [ "image" ] },
       { mime = "video/*",          use = [ "video" ] },

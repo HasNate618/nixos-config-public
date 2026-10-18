@@ -16,11 +16,11 @@
         # Explicit binds instead of 0.0.0.0 — frees 10.0.0.46:53 for the
         # LAN split-horizon resolver (dnsmasq below).
         #   10.0.0.45    = LAN clients (get tailnet-IP answers via rewrites)
-        #   100.103.1.61 = Tailscale clients (tailnet DNS override)
+        #   100.64.0.10 = Tailscale clients (tailnet DNS override)
         #   127.0.0.1    = host + Docker embedded DNS (containers forward via host loopback)
         # NOTE: if a new Docker bridge network is created, containers on it
         # still resolve via 127.0.0.1 (embedded DNS) — no per-gateway binds needed.
-        bind_hosts = [ "10.0.0.45" "100.103.1.61" "127.0.0.1" ];
+        bind_hosts = [ "10.0.0.45" "100.64.0.10" "127.0.0.1" ];
         port = 53;
         upstream_dns = [
           "https://dns.quad9.net/dns-query"
@@ -53,7 +53,7 @@
   # 10.0.0.46; it answers *.home.lab -> 10.0.0.45 (Caddy's LAN IP) and
   # forwards everything else to AdGuard so LAN users keep ad-blocking.
   # Remote/Tailscale clients are unaffected (they still query AdGuard's
-  # tailnet IP and get 100.103.1.61 answers).
+  # tailnet IP and get 100.64.0.10 answers).
   services.dnsmasq = {
     enable = true;
     resolveLocalQueries = false;  # must be false — module would also bind 127.0.0.1:53 (AdGuard conflict)
@@ -61,7 +61,7 @@
       "bind-interfaces" = true;
       "listen-address" = "10.0.0.46";
       "no-resolv" = true;
-      # /etc/hosts contains "100.103.1.61 home.lab" (host-local workaround);
+      # /etc/hosts contains "100.64.0.10 home.lab" (host-local workaround);
       # without no-hosts it overrides the address directive for the bare
       # domain. LAN clients must get the LAN IP, so ignore hosts entirely.
       "no-hosts" = true;
@@ -93,10 +93,10 @@
       sleep 3
       ${pkgs.curl}/bin/curl -s -X POST http://127.0.0.1:3000/control/rewrite/add \
         -H "Content-Type: application/json" \
-        -d '{"domain":"home.lab","answer":"100.103.1.61"}' || true
+        -d '{"domain":"home.lab","answer":"100.64.0.10"}' || true
       ${pkgs.curl}/bin/curl -s -X POST http://127.0.0.1:3000/control/rewrite/add \
         -H "Content-Type: application/json" \
-        -d '{"domain":"*.home.lab","answer":"100.103.1.61"}' || true
+        -d '{"domain":"*.home.lab","answer":"100.64.0.10"}' || true
     '';
   };
 

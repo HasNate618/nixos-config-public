@@ -20,6 +20,7 @@
     ./access/nextcloud.nix
     ./access/collabora.nix
     ./access/vaultwarden.nix
+    ./access/filebrowser.nix
 
     # AI / LLM — chat, gateway, search, crawl, agents
     ./ai/bifrost.nix
@@ -38,6 +39,7 @@
     ./ai/excalidraw-mcp.nix
     ./ai/brightspace-mcp.nix
     ./ai/campus.nix
+    ./ai/embeddinggemma.nix
 
     # Media — Jellyfin, *arr stack, Immich
     ./media/jellyfin.nix
@@ -49,5 +51,8 @@
     ./monitor/uptime-kuma.nix
     ./monitor/netdata.nix
     ./monitor/ntfy.nix
+
+    # Games — self-hosted private game servers
+    ./games/lunar-tear.nix
   ];
 }

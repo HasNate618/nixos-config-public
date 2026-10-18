@@ -1,0 +1,20 @@
+diff --git a/src/quick/items/qquickwindow.cpp b/src/quick/items/qquickwindow.cpp
+--- a/src/quick/items/qquickwindow.cpp
++++ b/src/quick/items/qquickwindow.cpp
+@@ -385,4 +385,16 @@
+ static void updatePixelRatioHelper(QQuickItem *item, float pixelRatio)
+ {
++    // Guard against infinite recursion on fractional scale changes.
++    // If itemChange(ItemDevicePixelRatioHasChanged) triggers child
++    // add/remove (which fires on scale events), the recursive call
++    // can cycle until stack overflow.
++    static thread_local int recursionDepth = 0;
++    struct DepthGuard {
++        int &depth;
++        DepthGuard(int &d) : depth(d) { ++depth; }
++        ~DepthGuard() { --depth; }
++    } guard(recursionDepth);
++    if (recursionDepth > 100) return;
++
+     if (item->flags() & QQuickItem::ItemHasContents) {
+         QQuickItemPrivate *itemPrivate = QQuickItemPrivate::get(item);

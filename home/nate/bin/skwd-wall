@@ -1,3 +1,4 @@
 #!/bin/sh
-SKWD_PATCHED="$HOME/.local/share/skwd-wall-patched"
-exec quickshell -p "$SKWD_PATCHED/shell.qml" "$@"
+# skwd-wall v2 picker (Rust/iced/wgpu). Talks to the running skwd-walld
+# daemon over its socket and exits when the selector is closed.
+exec skwd-wall-v2 "$@"

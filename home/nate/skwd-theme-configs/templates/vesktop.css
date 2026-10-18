@@ -1,0 +1,116 @@
+/* Matugen-generated Vesktop/Vencord theme */
+/* Wallpaper-derived Material You colors — comprehensive Discord CSS coverage */
+
+.theme-dark, .theme-light {
+  /* ===== Backgrounds ===== */
+  --background-primary: #141414 !important;
+  --background-secondary: #262626 !important;
+  --background-secondary-alt: #1c1c1c !important;
+  --background-secondary: #121212 !important;
+  --background-accent: {{colors.primary_container.default.hex}} !important;
+  --background-floating: #242424 !important;
+  --background-nested-floating: #262626 !important;
+  --background-mobile-primary: #141414 !important;
+  --background-mobile-secondary: #262626 !important;
+  --background-modifier-hover: rgba({{colors.on_surface.default.red}}, {{colors.on_surface.default.green}}, {{colors.on_surface.default.blue}}, 0.08) !important;
+  --background-modifier-active: rgba({{colors.on_surface.default.red}}, {{colors.on_surface.default.green}}, {{colors.on_surface.default.blue}}, 0.12) !important;
+  --background-modifier-selected: {{colors.primary.default.hex}} !important;
+  --background-modifier-accent: rgba({{colors.on_surface.default.red}}, {{colors.on_surface.default.green}}, {{colors.on_surface.default.blue}}, 0.06) !important;
+  --background-mentioned: rgba({{colors.secondary.default.red}}, {{colors.secondary.default.green}}, {{colors.secondary.default.blue}}, 0.12) !important;
+  --background-mentioned-hover: rgba({{colors.secondary.default.red}}, {{colors.secondary.default.green}}, {{colors.secondary.default.blue}}, 0.18) !important;
+  --background-message-hover: rgba({{colors.on_surface.default.red}}, {{colors.on_surface.default.green}}, {{colors.on_surface.default.blue}}, 0.04) !important;
+  --channeltextarea-background: #262626 !important;
+  --activity-card-background: #1c1c1c !important;
+  --search-area-background: #262626 !important;
+
+  /* ===== Surface/overlay ===== */
+  --bg-overlay-chat: transparent !important;
+  --bg-overlay-home: transparent !important;
+  --bg-overlay-home-card: #1c1c1c !important;
+  --home-background: transparent !important;
+  --home-card-resting-border: {{colors.outline_variant.default.hex}} !important;
+
+  /* ===== Text ===== */
+  --text-normal: {{colors.on_surface.default.hex}} !important;
+  --text-muted: {{colors.on_surface_variant.default.hex}} !important;
+  --text-link: {{colors.primary.default.hex}} !important;
+  --text-link-low-saturation: {{colors.primary.default.hex}} !important;
+  --text-positive: {{colors.secondary.default.hex}} !important;
+  --text-warning: {{colors.error.default.hex}} !important;
+  --text-danger: {{colors.error.default.hex}} !important;
+  --text-brand: {{colors.primary.default.hex}} !important;
+
+  /* ===== Headers ===== */
+  --header-primary: {{colors.on_surface.default.hex}} !important;
+  --header-secondary: {{colors.on_surface_variant.default.hex}} !important;
+
+  /* ===== Interactive ===== */
+  --interactive-normal: {{colors.on_surface_variant.default.hex}} !important;
+  --interactive-hover: {{colors.on_surface.default.hex}} !important;
+  --interactive-active: {{colors.on_surface.default.hex}} !important;
+  --interactive-muted: {{colors.outline.default.hex}} !important;
+
+  /* ===== Brand ===== */
+  --brand-experiment: {{colors.primary.default.hex}} !important;
+  --brand-experiment-hover: {{colors.primary_container.default.hex}} !important;
+  --brand-experiment-560: {{colors.primary.default.hex}} !important;
+  --brand-experiment-500: {{colors.primary.default.hex}} !important;
+  --brand-experiment-430: {{colors.primary_container.default.hex}} !important;
+  --brand-experiment-200: {{colors.primary_container.default.hex}} !important;
+  --brand-experiment-100: {{colors.primary_container.default.hex}} !important;
+
+  /* ===== Buttons ===== */
+  --button-primary-background: {{colors.primary.default.hex}} !important;
+  --button-primary-hover-background: {{colors.primary_container.default.hex}} !important;
+  --button-primary-active-background: {{colors.primary_container.default.hex}} !important;
+  --button-primary-disabled-background: {{colors.outline.default.hex}} !important;
+  --button-secondary-background: #262626 !important;
+  --button-secondary-hover-background: #1c1c1c !important;
+  --button-danger-background: {{colors.error.default.hex}} !important;
+  --button-danger-hover-background: {{colors.error_container.default.hex}} !important;
+  --button-outline-brand-border: {{colors.primary.default.hex}} !important;
+  --button-outline-brand-text: {{colors.primary.default.hex}} !important;
+
+  /* ===== Inputs ===== */
+  --input-background: #262626 !important;
+  --input-placeholder-text: {{colors.on_surface_variant.default.hex}} !important;
+  --input-focused-border: {{colors.primary.default.hex}} !important;
+
+  /* ===== Cards ===== */
+  --card-background: #1c1c1c !important;
+  --card-background-floating: #242424 !important;
+  --card-foreground: {{colors.on_surface.default.hex}} !important;
+
+  /* ===== Scrollbars ===== */
+  --scrollbar-thin-thumb: {{colors.outline_variant.default.hex}} !important;
+  --scrollbar-thin-track: transparent !important;
+  --scrollbar-auto-thumb: {{colors.outline_variant.default.hex}} !important;
+  --scrollbar-auto-track: #141414 !important;
+
+  /* ===== Mentions & Status ===== */
+  --mention-foreground: {{colors.primary.default.hex}} !important;
+  --mention-background: rgba({{colors.primary.default.red}}, {{colors.primary.default.green}}, {{colors.primary.default.blue}}, 0.12) !important;
+  --status-positive-background: {{colors.secondary.default.hex}} !important;
+  --status-warning-background: {{colors.secondary_container.default.hex}} !important;
+  --status-danger-background: {{colors.error.default.hex}} !important;
+
+  /* ===== Profile ===== */
+  --profile-gradient-primary-color: {{colors.primary.default.hex}} !important;
+  --profile-gradient-secondary-color: {{colors.secondary.default.hex}} !important;
+  --profile-gradient-overlay-color: transparent !important;
+  --profile-gradient-button-color: {{colors.primary.default.hex}} !important;
+  --profile-body-background-color: #1c1c1c !important;
+  --profile-body-border-color: {{colors.outline_variant.default.hex}} !important;
+  --profile-body-section-background-color: #262626 !important;
+
+  /* ===== Modals ===== */
+  --modal-background: #242424 !important;
+  --modal-footer-background: #141414 !important;
+  --modal-border: {{colors.outline_variant.default.hex}} !important;
+
+  /* ===== Sidebar / Channels ===== */
+  --channel-icon: {{colors.on_surface_variant.default.hex}} !important;
+  --channels-default: {{colors.on_surface_variant.default.hex}} !important;
+  --channel-text-area-placeholder: {{colors.on_surface_variant.default.hex}} !important;
+  --sidebar-background: #262626 !important;
+}

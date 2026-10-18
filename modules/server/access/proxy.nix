@@ -2,7 +2,7 @@
 # Running as Docker container to avoid NixOS module quirks
 # HTTP only — Tailscale encrypts the wire, no cert management needed
 # LAN: http://home.lab (port 80)
-# Tailscale: http://home.lab via split DNS → 100.103.1.61
+# Tailscale: http://home.lab via split DNS → 100.64.0.10
 # 10.0.0.45 only serves /jellyfin for smart TVs
 { pkgs, lib, config, ... }:
 
@@ -45,8 +45,10 @@ let
     # AdGuard Home
     http://adguard.home.lab {
       crowdsec
+      # Auth is enabled via a bcrypt hash supplied from a sops secret rather
+      # than committed here.
       # basic_auth {
-      #   admin <bcrypt hash from sops secret adguard-admin-hash>
+      #   admin <bcrypt hash>
       # }
       reverse_proxy 127.0.0.1:3000
     }
@@ -55,6 +57,11 @@ let
     http://bifrost.home.lab {
       crowdsec
       reverse_proxy 127.0.0.1:18081
+    }
+    # EmbeddingGemma 2 local embedding server (text + image + audio)
+    http://embeddinggemma.home.lab {
+      crowdsec
+      reverse_proxy 127.0.0.1:8081
     }
 
     # Forgejo Git Forge
@@ -294,6 +301,12 @@ let
       }
     }
 
+
+    # FileBrowser — NAS file manager
+    http://nas.home.lab {
+      crowdsec
+      reverse_proxy 127.0.0.1:8089
+    }
 
     # Bazarr — Subtitle Manager
 

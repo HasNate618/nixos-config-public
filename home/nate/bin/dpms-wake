@@ -1,0 +1,60 @@
+#!/usr/bin/env bash
+# Wake the display after resume or idle DPMS-off.
+#
+# WHY the cycle is UNCONDITIONAL:
+# Two facts together make a conditional cycle useless:
+#   1. CMonitor::setDPMS() early-returns when the target state already matches
+#      (`if (m_dpmsStatus == on) return;` — Hyprland src/output/Monitor.cpp), so
+#      `dpms enable` is a HARD NO-OP whenever m_dpmsStatus is already true.
+#   2. The failure this defends against — backlight on, dpmsStatus true, nothing
+#      scanned out ("lit but black") — reports m_dpmsStatus == true.
+# On exactly the broken case `enable` therefore does nothing. Only a real
+# off->on cycle (which tears the connector down and rebuilds it) recovers,
+# which is why a manual DPMS toggle fixes it.
+#
+# WHY the optional settle delay:
+# hypridle's after_sleep_cmd fires the instant PrepareForSleep(false) arrives,
+# while aquamarine is still restoring CRTCs ("Restoring after VT switch",
+# "Rescanned connectors"). A dispatch issued inside that window can be
+# superseded by the ongoing restore and leave the output black. Resume-path
+# callers pass a settle time; the idle-wake path needs none.
+#
+# Usage: dpms-wake [settle_seconds]
+
+set -u
+
+SETTLE="${1:-0}"
+
+_sock=$(ss -xlp 2>/dev/null | grep -o "/run/user/1000/hypr/[^ ]*\.socket\.sock" | head -1)
+_sig=""
+[ -n "$_sock" ] && _sig="$(basename "$(dirname "$_sock")")"
+[ -z "$_sig" ] && _sig=$(ls -1t /run/user/1000/hypr 2>/dev/null | head -1)
+[ -n "$_sig" ] && export HYPRLAND_INSTANCE_SIGNATURE="$_sig"
+
+# No live compositor (boot, or a stale signature): nothing to do.
+hyprctl monitors -j >/dev/null 2>&1 || exit 0
+
+# Let the DRM backend finish restoring before touching DPMS.
+if [ "$SETTLE" -gt 0 ] 2>/dev/null; then sleep "$SETTLE"; fi
+
+dpms_on()  { hyprctl dispatch 'hl.dsp.dpms({ action = "enable" })'  >/dev/null 2>&1; }
+dpms_off() { hyprctl dispatch 'hl.dsp.dpms({ action = "disable" })' >/dev/null 2>&1; }
+
+# Unconditional off->on cycle: rebuilds the connector and clears any stranded
+# scanout state. See the header for why this cannot be conditional.
+dpms_off
+sleep 0.35
+dpms_on
+
+# Verify the output actually came back; re-issue the enable if the commit was
+# rejected (possible if the cycle raced the restore).
+for _ in 1 2 3 4 5; do
+  _on=$(hyprctl monitors -j 2>/dev/null | jq -r '[.[] | select(.disabled == false) | .dpmsStatus] | all')
+  [ "$_on" = "true" ] && break
+  sleep 0.4
+  dpms_on
+done
+
+# Give the compositor a moment to present before anything else touches the
+# session (hypridle chains the kbd/brightness restores after this).
+sleep 0.3

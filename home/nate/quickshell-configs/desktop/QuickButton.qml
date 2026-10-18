@@ -29,8 +29,8 @@ Item {
                   : Qt.rgba(btn.root.ink.r, btn.root.ink.g, btn.root.ink.b, 0.03)
         border.color: btn.selected ? btn.root.seal : btn.root.sep
         border.width: btn.selected ? 2 : 1
-        Behavior on color        { ColorAnimation  { duration: 120 } }
-        Behavior on border.color { ColorAnimation  { duration: 120 } }
+        Behavior on color        { ColorAnimation  { duration: btn.root.focusMode ? 0 : 120 } }
+        Behavior on border.color { ColorAnimation  { duration: btn.root.focusMode ? 0 : 120 } }
     }
 
     Row {

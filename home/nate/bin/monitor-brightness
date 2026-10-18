@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# Control Dell S3225QS monitor brightness via DDC/CI
-# Bus 17 = USB-C1 (DP connection)
+# Control an external monitor's brightness via DDC/CI.
+# Set DDC_BUS to the bus your monitor sits on (see `ddcutil detect`).
 
-BUS=17
+BUS="${DDC_BUS:-1}"
 STEP=${1:-5}
 CURRENT=$(ddcutil --bus $BUS getvcp 10 2>/dev/null | grep -o "current value = *[0-9]*" | grep -o "[0-9]*")
 MAX=$(ddcutil --bus $BUS getvcp 10 2>/dev/null | grep -o "max value = *[0-9]*" | grep -o "[0-9]*")

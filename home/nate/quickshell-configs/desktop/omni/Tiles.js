@@ -15,13 +15,13 @@ var base = [
     { key: "bluetooth",   keywords: "bluetooth bt pair device headset speaker keyboard",
       action: "blueman-manager" },
     { key: "weather",     keywords: "weather forecast temperature wttr rain sun wind",
-      action: "qs -c desktop ipc call weather toggle",
-      longAction: "qs -c desktop ipc call weather refresh" },
+      action: "/home/nate/.local/bin/qs-ipc call weather toggle",
+      longAction: "/home/nate/.local/bin/qs-ipc call weather refresh" },
 
     { key: "cpu",         keywords: "cpu processor memory monitor btop top htop performance load",
       action: "ghostty -e btop" },
     { key: "calendar",    keywords: "calendar date month day today schedule planner",
-      action: "qs -c desktop ipc call calendar toggle" },
+      action: "/home/nate/.local/bin/qs-ipc call calendar toggle" },
 
 
     { key: "power",       keywords: "power menu suspend hibernate logout restart shutdown lock",
@@ -46,7 +46,7 @@ function buildDyn(n) {
                  + (n.batPower >= 0.05
                     ? "  " + n.batPower.toFixed(1) + "W"
                     : ""),
-            tone: n.batVal <= 10 ? n.seal
+            tone: n.batVal <= 10 ? n.alert
                                  : n.batVal <= 20 ? n.indigo
                                                   : n.ink
         },
@@ -54,7 +54,7 @@ function buildDyn(n) {
             glyph: n.audioIcon,
             label: "AUDIO",
             sub: n.audioMuted ? "MUTED" : (n.audioVol + "%"),
-            tone: n.audioMuted ? n.seal : n.ink
+            tone: n.audioMuted ? n.alert : n.ink
         },
         network: {
             glyph: n.netIcon,
@@ -87,7 +87,7 @@ function buildDyn(n) {
             glyph: "󰍛",
             label: "CPU",
             sub: Math.round(n.cpuVal) + "%",
-            tone: n.cpuVal > 80 ? n.seal : n.ink
+            tone: n.cpuVal > 80 ? n.alert : n.ink
         },
         calendar:    { glyph: "󰃭",          label: "CALENDAR",    sub: n.dd + " " + n.mon, tone: n.ink },
         power:       { glyph: n.icoPower,   label: "POWER",       sub: "MENU",             tone: n.ink }

@@ -128,9 +128,9 @@ Item {
                            : "transparent"
                 border.color: modelData.inUse || kbdFocused ? body.root.seal : body.root.sep
                 border.width: kbdFocused ? 2 : 1
-                Behavior on color        { ColorAnimation { duration: 120 } }
-                Behavior on border.color { ColorAnimation { duration: 120 } }
-                Behavior on border.width { NumberAnimation { duration: 120 } }
+                Behavior on color        { ColorAnimation { duration: root.focusMode ? 0 : 120 } }
+                Behavior on border.color { ColorAnimation { duration: root.focusMode ? 0 : 120 } }
+                Behavior on border.width { NumberAnimation { duration: root.focusMode ? 0 : 120 } }
 
                 Text {
                     id: barsIcon

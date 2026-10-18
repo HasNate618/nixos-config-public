@@ -76,7 +76,7 @@ Item {
                         radius: parent.radius
                         color: modelData.value > modelData.threshold
                                ? body.root.seal : body.root.ink
-                        Behavior on width { NumberAnimation { duration: 360; easing.type: Easing.OutCubic } }
+                        Behavior on width { NumberAnimation { duration: root.focusMode ? 0 : 360; easing.type: Easing.OutCubic } }
                     }
                 }
                 Text {

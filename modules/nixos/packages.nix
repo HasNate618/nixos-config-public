@@ -4,25 +4,26 @@
   environment.systemPackages = with pkgs; [
     # Laptop-specific CLI tools
     gh
+    glow                           # markdown renderer (glow --pager in yazi)
     xh
     opencode
     python313Packages.huggingface-hub
     pi
-    jcode
     mcp-proxy
+    awscli2
+    android-tools                     # adb — Android phone access (Android/data etc)
 
     # GUI apps
     imv
+    upscayl                        # AI image upscaler (Real-ESRGAN GUI)
     mpv
     ffmpeg
+    guvcview
     localsend
+    luanti                          # voxel game (was imperative nix profile install)
     nmap
     swappy
-    pinta
-    qbittorrent
-    blender
     pipes
-    obs-studio
     ghostty
     libreoffice
     uwsm
@@ -31,7 +32,9 @@
     # Custom packages
     zen-pdf-viewer
     zen-markdown-viewer
-    kdePackages.kdenlive
     kdePackages.kdeconnect-kde
+
+    # Keyboard-driven mouse pointer (Wayland)
+    wl-kbptr
   ];
 }

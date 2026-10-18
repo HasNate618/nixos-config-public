@@ -27,15 +27,15 @@ OUTPUT_FILE = (
     Path.home()
     / ".config"
     / "zen"
-    / "7khcdo47.Default (release)"
+    / "xxxxxxxx.Default (release)"
     / "chrome"
     / "zen-themes"
     / "matugen-transparency"
     / "chrome.css"
 )
 
-ZEN_PREFS = Path.home() / ".config" / "zen" / "7khcdo47.Default (release)" / "prefs.js"
-ZEN_USER_JS = Path.home() / ".config" / "zen" / "7khcdo47.Default (release)" / "user.js"
+ZEN_PREFS = Path.home() / ".config" / "zen" / "xxxxxxxx.Default (release)" / "prefs.js"
+ZEN_USER_JS = Path.home() / ".config" / "zen" / "xxxxxxxx.Default (release)" / "user.js"
 MARIONETTE_HOST = "127.0.0.1"
 MARIONETTE_PORT = 2828
 
@@ -57,8 +57,32 @@ def extract_color() -> str | None:
         m = re.search(pattern, text)
         if m:
             c = m.group(1)
-            return c if len(c) == 9 else c[:7] + "CC"
+            c = c if len(c) == 9 else c[:7] + "CC"
+            return compensate(c)
     return None
+
+
+# ── warmth compensation ────────────────────────────────────────────────────
+
+SCALE_SCRIPT = "/home/nate/.config/skwd-wall/scripts/zen-red-scale.py"
+
+
+def compensate(color: str) -> str:
+    """Apply the Zen warmth compensation (single source: zen-red-scale.py).
+
+    Gecko renders matugen colours warmer than GTK/foot on this display, so
+    the value pushed to Zen is pre-scaled (R*2/5, G/B*10/13)."""
+    try:
+        out = subprocess.run(
+            [SCALE_SCRIPT, "--color", color],
+            capture_output=True, text=True, timeout=5,
+        )
+        c = out.stdout.strip()
+        if out.returncode == 0 and re.fullmatch(r"#[0-9a-fA-F]{6,8}", c):
+            return c
+    except Exception:
+        pass
+    return color
 
 
 # ── file writers ───────────────────────────────────────────────────────────

@@ -1,0 +1,46 @@
+#!/bin/sh
+# External monitor brightness via DDC/CI (ddcutil) — Dell S3225QS.
+# Usage: ext-brightness up|down|fine-up|fine-down|max|min
+#
+# Every DDC op costs ~1.2s on this dock (AUX latency dominates; sleep
+# multiplier and --noverify change nothing). To keep held keys usable,
+# the last value is cached so each press = ONE set call. The cache is
+# seeded from the monitor on first use and re-seeded when older than
+# 10 minutes, so manual monitor-OSD changes resync on the next press.
+# A non-blocking lock drops key-repeat bursts: at most one chain runs,
+# so holding the key steps ~1/s instead of queueing behind itself.
+
+# Monitor serial, used as the ddcutil display selector. Set
+# EXT_BRIGHTNESS_SN from `ddcutil detect`; when unset, ddcutil falls back
+# to its first detected display. Not committed.
+SN="${EXT_BRIGHTNESS_SN:-}"
+if [ -n "$SN" ]; then SEL=(-n "$SN"); else SEL=(-d 1); fi
+CACHE="${XDG_RUNTIME_DIR:-/tmp}/ext-brightness.cache"
+
+exec 9>"$CACHE.lock"
+flock -n 9 || exit 0
+
+cur=""
+if [ -f "$CACHE" ]; then
+  age=$(( $(date +%s) - $(stat -c %Y "$CACHE" 2>/dev/null || echo 0) ))
+  [ "$age" -lt 600 ] && read -r cur < "$CACHE"
+fi
+case "$cur" in ''|*[!0-9]*) cur=$(ddcutil "${SEL[@]}" getvcp 10 --brief 2>/dev/null | awk '{print $4}') ;; esac
+case "$cur" in ''|*[!0-9]*) exit 0 ;; esac
+
+case "$1" in
+  up)        new=$((cur + 15)) ;;
+  down)      new=$((cur - 15)) ;;
+  fine-up)   new=$((cur + 1)) ;;
+  fine-down) new=$((cur - 1)) ;;
+  max)       new=100 ;;
+  min)       new=5 ;;
+  *)         exit 1 ;;
+esac
+[ "$new" -lt 5 ] && new=5
+[ "$new" -gt 100 ] && new=100
+[ "$new" = "$cur" ] && { touch "$CACHE"; exit 0; }
+
+if ddcutil "${SEL[@]}" setvcp 10 "$new" >/dev/null 2>&1; then
+  printf '%s' "$new" > "$CACHE"
+fi

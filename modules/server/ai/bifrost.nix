@@ -19,7 +19,7 @@ in
     serviceConfig = {
       Type = "oneshot";
       RemainAfterExit = true;
-      ExecStartPre = "${pkgs.bash}/bin/bash -c '${docker} pull maximhq/bifrost:v1.6.6 || true'";  # pinned: v1.6.6
+      ExecStartPre = "${pkgs.bash}/bin/bash -c '${docker} pull bifrost-fork:session-affinity || true'";  # pinned: v1.6.6
       ExecStart = pkgs.writeScript "bifrost-start" ''
         #!${pkgs.bash}/bin/bash
         ${docker} rm -f bifrost 2>/dev/null || true
@@ -37,7 +37,7 @@ in
           -e APP_PORT=8080 \
           -e APP_HOST=0.0.0.0 \
           -e LOG_LEVEL=info \
-          maximhq/bifrost:v1.6.6
+          bifrost-fork:session-affinity
       '';
       ExecStop = "${docker} stop bifrost";
     };

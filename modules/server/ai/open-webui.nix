@@ -20,7 +20,7 @@ in
       RemainAfterExit = true;
       Restart = "on-failure";
       RestartSec = "5s";
-      ExecStartPre = "${pkgs.bash}/bin/bash -c '${docker} pull ghcr.io/open-webui/open-webui:main || true'";
+      ExecStartPre = "${pkgs.bash}/bin/bash -c '${docker} pull ghcr.io/open-webui/open-webui:main-slim || true'";
       ExecStart = pkgs.writeScript "open-webui-start" ''
         #!${pkgs.bash}/bin/bash
         ${docker} rm -f open-webui 2>/dev/null || true
@@ -43,7 +43,7 @@ in
           -e EXTERNAL_DOCUMENT_LOADER_URL="http://pdf-parse:8000" \
           -e DOCLING_SERVER_URL="http://pdf-parse:8000" \
           -e ENABLE_SIGNUP="false" \
-          ghcr.io/open-webui/open-webui:main
+          ghcr.io/open-webui/open-webui:main-slim
       '';
       ExecStop = "${docker} stop open-webui";
     };

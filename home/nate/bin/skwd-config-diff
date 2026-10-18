@@ -1,0 +1,21 @@
+#!/bin/sh
+# Compare the live (app-owned) skwd-wall v2 config against the repo seed, so
+# values tuned in the picker/settings UI can be baked back into
+# /etc/nixos/home/nate/skwd-theme-configs/config.json (then rebuild + commit).
+#
+# The live file is authoritative for the app: rebuilds never overwrite it.
+# Only the seed is copied in — and only when the live file is missing.
+set -eu
+
+LIVE="${XDG_CONFIG_HOME:-$HOME/.config}/skwd-wall-v2/config.json"
+SEED="/etc/nixos/home/nate/skwd-theme-configs/config.json"
+
+[ -f "$LIVE" ] || { echo "no live config at $LIVE" >&2; exit 1; }
+[ -f "$SEED" ] || { echo "repo seed not found at $SEED (is /etc/nixos checked out?)" >&2; exit 1; }
+
+if cmp -s "$SEED" "$LIVE"; then
+  echo "identical — live config matches the repo seed, nothing to bake"
+  exit 0
+fi
+
+diff -u --label "repo seed ($SEED)" --label "live ($LIVE)" "$SEED" "$LIVE" || true

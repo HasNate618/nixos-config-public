@@ -14,7 +14,7 @@ Item {
 
     implicitHeight: col.implicitHeight + 8
 
-    Component.onCompleted: if (body.nav) body.nav.refreshPowerProfile()
+    Component.onCompleted: if (body.nav) { body.nav.refreshPowerProfile(); body.nav.refreshChargeLimit(); }
 
     readonly property bool hasProfile: nav && nav.powerProfile.length > 0
                                        && nav.powerProfiles.length > 0
@@ -77,8 +77,8 @@ Item {
                            : (body.nav && body.nav.batVal <= 20
                               ? body.root.indigo
                               : body.root.ink)
-                    Behavior on width { NumberAnimation { duration: 380; easing.type: Easing.OutCubic } }
-                    Behavior on color { ColorAnimation  { duration: 180 } }
+                    Behavior on width { NumberAnimation { duration: root.focusMode ? 0 : 380; easing.type: Easing.OutCubic } }
+                    Behavior on color { ColorAnimation  { duration: root.focusMode ? 0 : 180 } }
                 }
             }
         }

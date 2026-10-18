@@ -29,6 +29,13 @@ PanelWindow {
     implicitWidth:  bar.root.isHorizontal ? 0 : bar.root.barHeight
     exclusiveZone:  bar.root.isHorizontal ? bar.root.barHeight + extraThickness : bar.root.barHeight
 
+    function updateBatPos() {
+        if (typeof batRow === "undefined" || !batRow) return;
+        var p = batRow.mapToItem(null, batRow.width/2, batRow.height/2);
+        root.batteryPopX = p.x;
+        root.batteryPopY = p.y;
+    }
+
     WlrLayershell.layer: WlrLayer.Top
     WlrLayershell.namespace: "omarchy-menu"
 
@@ -47,7 +54,7 @@ PanelWindow {
         opacity: 1.0
         Behavior on opacity {
             NumberAnimation {
-                duration: 60
+                duration: bar.root.focusMode ? 0 : 60
                 easing.type: Easing.OutQuad
             }
         }
@@ -63,8 +70,22 @@ PanelWindow {
         opacity: bar.cloudMode ? 1.0 : 1.0
         Behavior on opacity {
             NumberAnimation {
-                duration: 60
+                duration: bar.root.focusMode ? 0 : 60
                 easing.type: Easing.OutQuad
+            }
+        }
+
+        // 尼 frame line — sepia hairline along the bar's inner edge.
+        Rectangle {
+            visible: !bar.cloudMode && bar.root.isHorizontal && bar.root.barEdge === "top" && !bar.root.focusMode
+            anchors { left: parent.left; right: parent.right; bottom: parent.bottom }
+            height: 1
+            gradient: Gradient {
+                orientation: Gradient.Horizontal
+                GradientStop { position: 0.0;  color: "transparent" }
+                GradientStop { position: 0.12; color: Qt.rgba(bar.root.inkDeep.r, bar.root.inkDeep.g, bar.root.inkDeep.b, 0.10) }
+                GradientStop { position: 0.88; color: Qt.rgba(bar.root.inkDeep.r, bar.root.inkDeep.g, bar.root.inkDeep.b, 0.10) }
+                GradientStop { position: 1.0;  color: "transparent" }
             }
         }
 
@@ -88,7 +109,7 @@ PanelWindow {
         // Inner-edge hairline (facing the rest of the screen). Hidden in
         // cloud mode — the rounded backdrop replaces it visually.
         Rectangle {
-            visible: !bar.cloudMode && bar.root.isHorizontal
+            visible: !bar.cloudMode && bar.root.isHorizontal && !bar.root.focusMode
             anchors.left:   parent.left
             anchors.right:  parent.right
             anchors.top:    bar.root.barEdge === "bottom" ? parent.top    : undefined
@@ -97,7 +118,7 @@ PanelWindow {
             color: bar.root.sep
         }
         Rectangle {
-            visible: !bar.cloudMode && !bar.root.isHorizontal
+            visible: !bar.cloudMode && !bar.root.isHorizontal && !bar.root.focusMode
             anchors.top:    parent.top
             anchors.bottom: parent.bottom
             anchors.right:  bar.root.barEdge === "left"  ? parent.right : undefined
@@ -113,29 +134,70 @@ PanelWindow {
             anchors.horizontalCenter: parent.horizontalCenter
             anchors.verticalCenter:   parent.verticalCenter
             z: 10
-            Component.onCompleted: bar.root.calendarAnchorItem = clockItem
+            Component.onCompleted: bar.root.calendarAnchors[bar.screen.name] = clockItem
 
             implicitWidth:  bar.root.isHorizontal
-                            ? clockOneLine.implicitWidth + 14
+                            ? clockRow.implicitWidth + 14
                             : Math.max(clockHH.implicitWidth, clockMM.implicitWidth) + 8
             implicitHeight: bar.root.isHorizontal
-                            ? clockOneLine.implicitHeight + 8
+                            ? clockRow.implicitHeight + 8
                             : (clockHH.implicitHeight + clockMM.implicitHeight + 6)
 
             Bloom { id: clockBloom; root: bar.root }
 
-            Text {
-                id: clockOneLine
+            // Single tracked mono line (same as the rest of the bar) with one
+            // NieR accent: dim date, tiny seal square, bright time.
+            RowLayout {
+                id: clockRow
                 visible: bar.root.isHorizontal
                 anchors.centerIn: parent
                 anchors.verticalCenterOffset: -1
-                text: bar.root.dd + " " + bar.root.dow + " " + bar.root.hh + ":" + bar.root.mm + " " + bar.root.ap
-                color: clockMouse.containsMouse ? bar.root.seal : bar.root.ink
-                font.family: bar.root.mono
-                font.pixelSize: 14
-                font.letterSpacing: 2
-                font.weight: Font.Light
-                Behavior on color { ColorAnimation { duration: 180 } }
+                spacing: 0
+                Text {
+                    text: "「"
+                    color: clockMouse.containsMouse ? bar.root.seal : bar.root.ink
+                    font.family: bar.root.serifCJK
+                    font.pixelSize: 18
+                    font.weight: Font.Normal
+                    Layout.rightMargin: 7
+                }
+                Text {
+                    id: clockDate
+                    text: bar.root.dd + " " + bar.root.dow
+                    color: clockMouse.containsMouse ? bar.root.seal : bar.root.ink
+                    font.family: bar.root.mono
+                    font.pixelSize: 14
+                    font.letterSpacing: 2
+                    font.weight: Font.Light
+                    Layout.rightMargin: 5
+                    Behavior on color { ColorAnimation { duration: bar.root.focusMode ? 0 : 180 } }
+                }
+                Rectangle {
+                    Layout.alignment: Qt.AlignVCenter
+                    width: 3
+                    height: 3
+                    color: bar.root.seal
+                    opacity: 0.55
+                    Layout.rightMargin: 8
+                }
+                Text {
+                    id: clockTimeLine
+                    text: bar.root.hh + ":" + bar.root.mm + " " + bar.root.ap
+                    color: clockMouse.containsMouse ? bar.root.seal : bar.root.ink
+                    font.family: bar.root.mono
+                    font.pixelSize: 14
+                    font.letterSpacing: 2
+                    font.weight: Font.Light
+                    Layout.rightMargin: 4
+                    Behavior on color { ColorAnimation { duration: bar.root.focusMode ? 0 : 180 } }
+                }
+                Text {
+                    text: "」"
+                    color: clockMouse.containsMouse ? bar.root.seal : bar.root.ink
+                    font.family: bar.root.serifCJK
+                    font.pixelSize: 18
+                    font.weight: Font.Normal
+                }
             }
             Text {
                 id: clockHH
@@ -143,12 +205,12 @@ PanelWindow {
                 anchors.horizontalCenter: parent.horizontalCenter
                 anchors.bottom: parent.verticalCenter
                 anchors.bottomMargin: 1
-                text: bar.root.hh
+                text: "[" + bar.root.hh
                 color: clockMouse.containsMouse ? bar.root.seal : bar.root.ink
                 font.family: bar.root.mono
                 font.pixelSize: 11
                 font.weight: Font.Light
-                Behavior on color { ColorAnimation { duration: 180 } }
+                Behavior on color { ColorAnimation { duration: bar.root.focusMode ? 0 : 180 } }
             }
             Text {
                 id: clockMM
@@ -156,12 +218,12 @@ PanelWindow {
                 anchors.horizontalCenter: parent.horizontalCenter
                 anchors.top: parent.verticalCenter
                 anchors.topMargin: 1
-                text: bar.root.mm
+                text: bar.root.mm + "]"
                 color: clockMouse.containsMouse ? bar.root.seal : bar.root.ink
                 font.family: bar.root.mono
                 font.pixelSize: 11
                 font.weight: Font.Light
-                Behavior on color { ColorAnimation { duration: 180 } }
+                Behavior on color { ColorAnimation { duration: bar.root.focusMode ? 0 : 180 } }
             }
 
             Timer {
@@ -248,6 +310,7 @@ PanelWindow {
                 id: musicItem
                 visible: bar.root.isHorizontal && bar.root.musicTitle.length > 0
                 Layout.alignment: Qt.AlignVCenter
+                Layout.leftMargin: 12
                 Layout.preferredWidth: musicPill.width + 12
                 Layout.preferredHeight: bar.root.barHeight
 
@@ -255,36 +318,54 @@ PanelWindow {
                                                   ? bar.root.musicTitle + " - " + bar.root.musicArtist
                                                   : bar.root.musicTitle
 
-                Rectangle {
+                Item {
                     id: musicPill
                     anchors.centerIn: parent
-                    width: musicRow.width + 12
+                    width: musicRow.width + 20
                     height: 16
-                    radius: height / 2
-                    color: bar.root.accent
-                    opacity: musicMouse.containsMouse ? 1.0 : 0.9
-                    Behavior on opacity { NumberAnimation { duration: 180 } }
 
+                    property color bracketColor: musicMouse.containsMouse
+                        ? Qt.rgba(bar.root.inkDeep.r, bar.root.inkDeep.g, bar.root.inkDeep.b, 0.85)
+                        : Qt.rgba(bar.root.inkDeep.r, bar.root.inkDeep.g, bar.root.inkDeep.b, 0.45)
+                    Behavior on bracketColor { ColorAnimation { duration: bar.root.focusMode ? 0 : 160 } }
+                    // 「 corner mark (top-left): vertical + top stroke only
+                    Item {
+                        anchors { left: parent.left; verticalCenter: parent.verticalCenter }
+                        width: 5; height: 14
+                        Rectangle { anchors { left: parent.left; top: parent.top; bottom: parent.bottom } width: 1; color: musicPill.bracketColor }
+                        Rectangle { anchors { left: parent.left; top: parent.top } width: 5; height: 1; color: musicPill.bracketColor }
+                    }
+                    // 」 corner mark (bottom-right): vertical + bottom stroke only
+                    Item {
+                        anchors { right: parent.right; verticalCenter: parent.verticalCenter }
+                        width: 5; height: 14
+                        Rectangle { anchors { right: parent.right; top: parent.top; bottom: parent.bottom } width: 1; color: musicPill.bracketColor }
+                        Rectangle { anchors { right: parent.right; bottom: parent.bottom } width: 5; height: 1; color: musicPill.bracketColor }
+                    }
                     Row {
                         id: musicRow
                         anchors.centerIn: parent
                         spacing: 5
-
                         Text {
                             id: musicIcon
                             anchors.verticalCenter: parent.verticalCenter
-                            text: bar.root.icoMusic
-                            color: bar.root.paper
+                            text: bar.root.musicPlaying
+                                  ? String.fromCodePoint(0xf04c)   // pause (playing → click pauses)
+                                  : String.fromCodePoint(0xf04b)   // play
+                            color: bar.root.inkDeep
                             font.family: bar.root.mono
                             font.pixelSize: 9
                         }
-
                         Text {
                             id: musicLabel
                             anchors.verticalCenter: parent.verticalCenter
-                            width: Math.min(implicitWidth, 140)
-                            text: bar.root.musicTitle
-                            color: bar.root.paper
+                            // Cap the visible label at 40 chars; the full
+                            // title + artist stay available in the hover
+                            // tooltip (musicItem.tipText).
+                            text: bar.root.musicTitle.length > 40
+                                  ? bar.root.musicTitle.slice(0, 40) + "\u2026"
+                                  : bar.root.musicTitle
+                            color: bar.root.inkDeep
                             font.family: bar.root.mono
                             font.pixelSize: 10
                             font.weight: Font.Medium
@@ -326,21 +407,26 @@ PanelWindow {
                 Layout.fillWidth:  bar.root.isHorizontal
                 Layout.fillHeight: !bar.root.isHorizontal
             }
-
         }
+            // ── Right cluster ──
+            // Each stat sits in a StatFrame (two opposing L-corners, Tsugumori
+            // bar motif) — the frames double as the separators, so spacing
+            // between widgets is uniform by construction.
             RowLayout {
                 id: rightCluster
                 anchors.right: parent.right
-                anchors.rightMargin: bar.cloudMode ? bar.cloudAir + bar.cloudPad : 4
+                anchors.rightMargin: bar.cloudMode ? bar.cloudAir + bar.cloudPad : 10
                 anchors.verticalCenter: parent.verticalCenter
-                spacing: 12
+                spacing: 8
 
                 // Weather
-                RowLayout {
+                StatFrame {
+                    id: weatherItem
+                    root: bar.root
                     Layout.alignment: Qt.AlignVCenter
-                    spacing: 5
-                    Text { text: bar.root.weatherUnavailable ? "?" : (bar.root.weatherLoaded ? bar.root.weatherIcon : "·"); color: bar.root.weatherUnavailable ? bar.root.inkDeep : bar.root.tintCorne; font.family: bar.root.mono; font.pixelSize: 13 }
-                    Text { text: bar.root.weatherLoaded ? Math.round(bar.root.weatherTempC) + "°" : ""; color: bar.root.weatherUnavailable ? bar.root.inkDeep : bar.root.tintCorne; font.family: bar.root.mono; font.pixelSize: 13 }
+                    Component.onCompleted: bar.root.weatherAnchors[bar.screen.name] = weatherItem
+                    Text { text: bar.root.weatherUnavailable ? "󰼷" : (bar.root.weatherLoaded ? bar.root.weatherIcon : "·"); color: bar.root.weatherUnavailable ? bar.root.inkDeep : bar.root.tintCorne; font.family: bar.root.mono; font.pixelSize: 13 }
+                    Text { text: bar.root.weatherLoaded ? Math.round(bar.root.weatherTempC) + "°" : ""; color: bar.root.weatherUnavailable ? bar.root.inkDeep : bar.root.ink; font.family: bar.root.mono; font.pixelSize: 13 }
                     MouseArea {
                         anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor
                         onEntered: { const p = parent.mapToItem(null, parent.width/2, parent.height/2); let tip = bar.root.weatherUnavailable ? "Weather offline" : (bar.root.weatherLoaded ? bar.root.weatherTempC + "°C" : "Weather…"); bar.root.showTooltip(tip, p.x, p.y); }
@@ -354,10 +440,10 @@ PanelWindow {
                 }
 
                 // Corne keyboard battery (SVG icons): *60 70*
-                RowLayout {
+                StatFrame {
+                    root: bar.root
                     Layout.alignment: Qt.AlignVCenter
                     visible: bar.root.corneLeft >= 0 || bar.root.corneRight >= 0
-                    spacing: 5
                     Canvas {
                         width: 16; height: 16
                         property color cc: bar.root.tintCorne
@@ -376,8 +462,8 @@ PanelWindow {
                         }
                         Component.onCompleted: requestPaint()
                     }
-                    Text { text: bar.root.corneLeft >= 0 ? (bar.root.corneLeft < 10 ? "0" : "") + bar.root.corneLeft.toString() : "?"; color: bar.root.tintCorne; font.family: bar.root.mono; font.pixelSize: 13 }
-                    Text { Layout.leftMargin: 2; text: bar.root.corneRight >= 0 ? (bar.root.corneRight < 10 ? "0" : "") + bar.root.corneRight.toString() : "?"; color: bar.root.tintCorne; font.family: bar.root.mono; font.pixelSize: 13 }
+                    Text { text: bar.root.corneLeft >= 0 ? (bar.root.corneLeft < 10 ? "0" : "") + bar.root.corneLeft.toString() : "?"; color: bar.root.ink; font.family: bar.root.mono; font.pixelSize: 13 }
+                    Text { Layout.leftMargin: 2; text: bar.root.corneRight >= 0 ? (bar.root.corneRight < 10 ? "0" : "") + bar.root.corneRight.toString() : "?"; color: bar.root.ink; font.family: bar.root.mono; font.pixelSize: 13 }
                     Canvas {
                         width: 16; height: 16
                         property color cc: bar.root.tintCorne
@@ -407,11 +493,11 @@ PanelWindow {
                 }
 
                 // CPU
-                RowLayout {
+                StatFrame {
+                    root: bar.root
                     Layout.alignment: Qt.AlignVCenter
-                    spacing: 5
                     Text { text: bar.root.icoCpu; color: bar.root.tintCpu; font.family: bar.root.mono; font.pixelSize: 13 }
-                    Text { text: (Math.round(bar.root.cpuVal) < 10 ? "0" : "") + Math.round(bar.root.cpuVal) + "% " + bar.root.cpuTemp + "°"; color: bar.root.tintCpu; font.family: bar.root.mono; font.pixelSize: 14 }
+                    Text { text: (Math.round(bar.root.cpuVal) < 10 ? "0" : "") + Math.round(bar.root.cpuVal) + "% " + bar.root.cpuTemp + "°"; color: bar.root.ink; font.family: bar.root.mono; font.pixelSize: 14 }
                     MouseArea {
                         anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor
                         onEntered: { const p = parent.mapToItem(null, parent.width/2, parent.height/2); bar.root.showTooltip("CPU " + Math.round(bar.root.cpuVal) + "% · " + bar.root.cpuTemp + "°C", p.x, p.y); }
@@ -421,10 +507,11 @@ PanelWindow {
                 }
 
                 // MEM
-                RowLayout {
+                StatFrame {
+                    root: bar.root
                     Layout.alignment: Qt.AlignVCenter
-                    spacing: 5
-                    Text { text: bar.root.icoRam + " " + (Math.round(bar.root.memUsedGB) < 10 ? "0" : "") + Math.round(bar.root.memUsedGB) + "G"; color: bar.root.tintRam; font.family: bar.root.mono; font.pixelSize: 14 }
+                    Text { text: bar.root.icoRam; color: bar.root.tintRam; font.family: bar.root.mono; font.pixelSize: 13 }
+                    Text { text: (bar.root.memUsedGB < 10 ? bar.root.memUsedGB.toFixed(1) : Math.round(bar.root.memUsedGB)) + "G"; color: bar.root.ink; font.family: bar.root.mono; font.pixelSize: 14 }
                     MouseArea {
                         anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor
                         onEntered: { const p = parent.mapToItem(null, parent.width/2, parent.height/2); bar.root.showTooltip("MEM " + bar.root.memUsedGB + "/" + bar.root.memTotalGB + " GB (" + Math.round(bar.root.memVal) + "%)", p.x, p.y); }
@@ -434,11 +521,11 @@ PanelWindow {
                 }
 
                 // VOL
-                RowLayout {
+                StatFrame {
+                    root: bar.root
                     Layout.alignment: Qt.AlignVCenter
-                    spacing: 5
                     Text { text: bar.root.volIcon; color: bar.root.tintVol; font.family: bar.root.mono; font.pixelSize: 13 }
-                    Text { text: (bar.root.audioMuted || bar.root.audioVol === 0) ? "--" : (bar.root.audioVol < 10 ? "0" : "") + bar.root.audioVol + "%"; color: bar.root.tintVol; font.family: bar.root.mono; font.pixelSize: 14 }
+                    Text { text: (bar.root.audioMuted || bar.root.audioVol === 0) ? "--" : (bar.root.audioVol < 10 ? "0" : "") + bar.root.audioVol + "%"; color: bar.root.ink; font.family: bar.root.mono; font.pixelSize: 14 }
                     MouseArea {
                         anchors.fill: parent; hoverEnabled: true; acceptedButtons: Qt.LeftButton | Qt.RightButton; cursorShape: Qt.PointingHandCursor
                         onEntered: { const p = parent.mapToItem(null, parent.width/2, parent.height/2); let tip = bar.root.audioMuted ? "Audio muted · " + bar.root.audioVol + "%" : "Audio " + bar.root.audioVol + "%"; bar.root.showTooltip(tip, p.x, p.y); }
@@ -447,13 +534,20 @@ PanelWindow {
                     }
                 }
 
-                // BAT + power profile + tight | + power, isolated from cluster 10px spacing
-                RowLayout {
+                // BAT — frame doubles as the popup anchor (id kept for updateBatPos)
+                StatFrame {
+                    id: batRow
+                    root: bar.root
                     Layout.alignment: Qt.AlignVCenter
-                    spacing: 3
+                    innerSpacing: 3
+                    Component.onCompleted: bar.updateBatPos()
+                    onXChanged: bar.updateBatPos()
+                    onYChanged: bar.updateBatPos()
+                    onWidthChanged: bar.updateBatPos()
+                    onHeightChanged: bar.updateBatPos()
                     Text { text: bar.root.profileIcon; color: bar.root.tintBat; font.family: bar.root.mono; font.pixelSize: 13 }
                     Text { text: bar.root.batIcon; color: bar.root.tintBat; font.family: bar.root.mono; font.pixelSize: 13 }
-                    Text { text: (bar.root.batVal < 10 ? "0" : "") + bar.root.batVal + "%" + (bar.root.batTime ? " " + bar.root.batTime : ""); color: bar.root.tintBat; font.family: bar.root.mono; font.pixelSize: 14 }
+                    Text { text: (bar.root.batVal < 10 ? "0" : "") + bar.root.batVal + "%" + (bar.root.batTime ? " " + bar.root.batTime : ""); color: bar.root.ink; font.family: bar.root.mono; font.pixelSize: 14 }
                     MouseArea {
                         anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor
                         onEntered: {
@@ -465,28 +559,23 @@ PanelWindow {
                         onExited: bar.root.hideTooltip("BAT")
                         onClicked: {
                             if (bar.root.batteryVisible) bar.root.batteryVisible = false;
-                            else { var p = parent.mapToItem(null, parent.width/2, parent.height/2); bar.root.popupAnchorX = p.x; bar.root.popupAnchorY = p.y; bar.root.popupScreen = bar.screen; bar.root.openBattery(); }
+                            else { var p = parent.mapToItem(null, parent.width/2, parent.height/2); bar.root.popupAnchorX = p.x; bar.root.popupAnchorY = p.y; bar.root.batteryPopX = p.x; bar.root.batteryPopY = p.y; bar.root.popupScreen = bar.screen; bar.root.openBattery(); }
                         }
                     }
+                }
 
-                    Rectangle {
-                        Layout.alignment: Qt.AlignVCenter
-                        Layout.preferredWidth: 1
-                        Layout.preferredHeight: 12
-                        color: bar.root.sep
-                    }
-
-                    Module {
-                        Layout.alignment: Qt.AlignVCenter
-                        glyphYOffset: 0
-                        root: bar.root
-                        glyph: bar.root.icoPower
-                        tooltip: "Power"
-                        color: bar.root.seal
-                        fontFamily: bar.root.mono
-                        fontSize: 22
-                        onActivated: bar.root.run("qs -c desktop ipc call palette openCategory System")
-                    }
+                // Power — bare seal button, outside the stat frames (Tsugumori
+                // keeps the power key unframed too).
+                Module {
+                    Layout.alignment: Qt.AlignVCenter
+                    glyphYOffset: 0
+                    root: bar.root
+                    glyph: bar.root.icoPower
+                    tooltip: "Power"
+                    color: bar.root.seal
+                    fontFamily: bar.root.mono
+                    fontSize: 22
+                    onActivated: bar.root.powerMenuRequested()
                 }
             }
     }

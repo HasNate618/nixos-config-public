@@ -2,11 +2,19 @@ import QtQuick
 import QtQuick.Layouts
 import Quickshell
 import Quickshell.Wayland
+import Quickshell.Hyprland
 
 // Brightness OSD — bar at top-right, auto-hides after changes.
 // Background styled like OmniMenu: paper*0.4 with border.
 PanelWindow {
     id: osd
+    screen: {
+        var fm = Hyprland.focusedMonitor;
+        var s = Quickshell.screens;
+        if (fm) for (var i = 0; i < s.length; i++)
+            if (s[i].name === fm.name) return s[i];
+        return s.length > 0 ? s[0] : null;
+    }
     required property var root
 
     color: "transparent"

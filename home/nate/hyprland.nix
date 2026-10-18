@@ -16,7 +16,7 @@ let
       BG="$(_get background)" && [ -n "$BG" ] && INACTIVE="$BG"
     fi
     _darken() {
-      python3 -c "
+      /etc/profiles/per-user/nate/bin/python3 -c "
     h = '$1'.lstrip('#')
     r, g, b = int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16)
     factor = 0.35
@@ -51,9 +51,17 @@ let
     GROUP_ACTIVE_RGBA="$(_hex_to_rgba "$GROUP_ACTIVE")"
     GROUP_INACTIVE_RGBA="rgba($(echo "$GROUP_COMPUTED_INACTIVE" | sed "s/^#//")01)"
 
-    if [ -z "$HYPRLAND_INSTANCE_SIGNATURE" ]; then
-      export HYPRLAND_INSTANCE_SIGNATURE=$(ls -1t /run/user/1000/hypr 2>/dev/null | head -1)
-    fi
+    # Always resolve the live Hyprland socket — the inherited HYPRLAND_INSTANCE_SIGNATURE
+    # (e.g. from skwd-daemon's env) may point to a stale/crashed session. ss shows the
+    # socket actually listening; fall back to ls -1t only if ss finds nothing.
+    # Skip border theme in focus mode (borders are disabled)
+    [ -f "$HOME/.cache/focus-mode" ] && exit 0
+
+    _sock=$(ss -xlp 2>/dev/null | grep -o "/run/user/1000/hypr/[^ ]*\.socket\.sock" | head -1)
+    _sig=""
+    [ -n "$_sock" ] && _sig="$(basename "$(dirname "$_sock")")"
+    [ -z "$_sig" ] && _sig=$(ls -1t /run/user/1000/hypr 2>/dev/null | head -1)
+    export HYPRLAND_INSTANCE_SIGNATURE="$_sig"
     if [ -n "$HYPRLAND_INSTANCE_SIGNATURE" ]; then
       hyprctl eval "hl.config({[\"general.col.active_border\"]=\"$ACTIVE_RGBA\",[\"general.col.inactive_border\"]=\"$INACTIVE_RGBA\",[\"general.border_size\"]=1,[\"decoration.rounding\"]=0,[\"group.col.border_active\"]=\"$GROUP_ACTIVE_RGBA\",[\"group.col.border_inactive\"]=\"$GROUP_INACTIVE_RGBA\"})"
     fi
@@ -98,14 +106,34 @@ let
   '';
 
   idle-toggle = pkgs.writeShellScriptBin "hypr-idle-toggle" ''
-    if systemctl --user is-active hypridle >/dev/null 2>&1; then systemctl --user stop hypridle; notify-send -u low "Idle lock disabled"
-    else systemctl --user start hypridle; notify-send -u low "Idle lock enabled"; fi
+    if systemctl --user is-active hypridle >/dev/null 2>&1; then
+      systemctl --user stop hypridle
+      # hypridle owns the wake path (on-resume DPMS + kbd restore); with it stopped the
+      # still-locked hyprlock would keep the desk dark — restore display + kbd here.
+      # Resolve the live socket: ssh/agent contexts may carry no (or a stale) signature.
+      _sock=$(ss -xlp 2>/dev/null | grep -o "/run/user/1000/hypr/[^ ]*\.socket\.sock" | head -1)
+      _sig=""
+      [ -n "$_sock" ] && _sig="$(basename "$(dirname "$_sock")")"
+      [ -z "$_sig" ] && _sig=$(ls -1t /run/user/1000/hypr 2>/dev/null | head -1)
+      [ -n "$_sig" ] && HYPRLAND_INSTANCE_SIGNATURE="$_sig" hyprctl dispatch 'hl.dsp.dpms({ action = "enable" })'
+      "$HOME/.local/bin/kbd-save-restore" restore
+      notify-send -u low "Idle lock disabled"
+    else
+      systemctl --user start hypridle
+      notify-send -u low "Idle lock enabled"
+    fi
   '';
 
   gaps-toggle = pkgs.writeShellScriptBin "hypr-gaps-toggle" ''
-    if [ -z "$HYPRLAND_INSTANCE_SIGNATURE" ]; then
-      export HYPRLAND_INSTANCE_SIGNATURE=$(ls -1t /run/user/1000/hypr 2>/dev/null | head -1)
-    fi
+    # Always resolve the live Hyprland socket — the inherited HYPRLAND_INSTANCE_SIGNATURE
+    # (e.g. from skwd-daemon's env) may point to a stale/crashed session. ss shows the
+    # socket actually listening; fall back to ls -1t only if ss finds nothing.
+
+    _sock=$(ss -xlp 2>/dev/null | grep -o "/run/user/1000/hypr/[^ ]*\.socket\.sock" | head -1)
+    _sig=""
+    [ -n "$_sock" ] && _sig="$(basename "$(dirname "$_sock")")"
+    [ -z "$_sig" ] && _sig=$(ls -1t /run/user/1000/hypr 2>/dev/null | head -1)
+    export HYPRLAND_INSTANCE_SIGNATURE="$_sig"
     OUT=14; IN=8
     CUR_OUT=$(hyprctl getoption general:gaps_out -j | jq -r '.css' | awk '{print $1}')
     [ -z "$CUR_OUT" ] && CUR_OUT=0
@@ -173,10 +201,28 @@ hyprctl eval "hl.config({[\"general.gaps_out\"]=0,[\"general.gaps_in\"]=0,[\"gen
     JQ="${pkgs.jq}/bin/jq"
 
     discover_sig() {
-      HYPRLAND_INSTANCE_SIGNATURE=$(ls -d /run/user/1000/hypr/*/ 2>/dev/null | tail -1 | xargs basename 2>/dev/null || echo "")
-      [ -n "$HYPRLAND_INSTANCE_SIGNATURE" ] && export HYPRLAND_INSTANCE_SIGNATURE
+      HYPRLAND_INSTANCE_SIGNATURE=""
+      for d in /run/user/1000/hypr/*/; do
+        s=$(basename "$d" 2>/dev/null) || continue
+        if "$HYPRCTL" --instance "$s" monitors -j >/dev/null 2>&1; then
+          HYPRLAND_INSTANCE_SIGNATURE=$s; break
+        fi
+      done
+      if [ -n "$HYPRLAND_INSTANCE_SIGNATURE" ]; then
+        export HYPRLAND_INSTANCE_SIGNATURE
+      fi
     }
     discover_sig
+    # No live compositor (boot or rebuild before the session is up): the
+    # one-shot rebuild unit must skip cleanly (exit 0); the --listen daemon
+    # exits 1 so systemd retries until Hyprland exists. Connect-test above
+    # so a stale sig dir is never picked.
+    if [ -z "''${HYPRLAND_INSTANCE_SIGNATURE:-}" ]; then
+      case " $* " in
+        *" --listen "*) exit 1 ;;
+        *) exit 0 ;;
+      esac
+    fi
 
     # Get laptop (eDP) monitor name
     edp_name() {
@@ -207,55 +253,42 @@ hyprctl eval "hl.config({[\"general.gaps_out\"]=0,[\"general.gaps_in\"]=0,[\"gen
     }
 
     refresh_hypr_visuals() {
-      "$HYPRCTL" eval 'hl.layer_rule({match = {namespace = "omarchy-menu"}, blur = true})
-      hl.layer_rule({match = {namespace = "omni-menu"}, blur = true})'
+      "$HYPRCTL" eval 'hl.layer_rule({match = {namespace = "omarchy-menu"}, blur = true})'
       "$HYPRCTL" reload
       sleep 0.6
     }
 
     reapply_wallpaper() {
-      local wall m outs sock
-      wall=$("$JQ" -r '.path // empty' "$HOME/.cache/skwd-wall/last-wallpaper.json" 2>/dev/null || true)
+      # skwd-wall v2 daemon owns per-output rendering; ask it to re-apply the
+      # current wallpaper on every live output after the layout changed
+      # (replaces the v1 daemon.sock RPC + manual skwd-paper-still spawns).
+      local wall m
+      wall=$("$JQ" -r '.path // empty' "$HOME/.cache/skwd-wall-v2/last-wallpaper.json" 2>/dev/null || true)
       [ -z "$wall" ] || [ ! -f "$wall" ] && return 0
-      sock="''${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/skwd/daemon.sock"
-      outs=$("$HYPRCTL" monitors -j | "$JQ" -c '[.[] | select(.disabled == false) | .name]')
-      if [ -S "$sock" ] && [ "$outs" != "[]" ]; then
-        printf '%s\n' "{\"method\":\"wall.apply\",\"params\":{\"type\":\"static\",\"path\":\"$wall\",\"outputs\":$outs},\"id\":1}" \
-          | ${pkgs.socat}/bin/socat - UNIX-CONNECT:"$sock" >/dev/null 2>&1 || true
-        sleep 0.5
-      fi
-      command -v skwd-paper-still >/dev/null || return 0
       while IFS= read -r m; do
         [ -z "$m" ] && continue
-        pkill -f "skwd-paper-still.* $m " 2>/dev/null || true
-        skwd-paper-still --persist --fill-mode fill "$m" "$wall" &
+        skwd-helm apply "$wall" -o "$m" 2>/dev/null || true
       done < <("$HYPRCTL" monitors -j | "$JQ" -r '.[] | select(.disabled == false) | .name')
-      [ -x "$HOME/.local/bin/wallpaper-postprocess" ] && "$HOME/.local/bin/wallpaper-postprocess" || true
     }
 
     apply_layout() {
+      # Find external monitor (works whether eDP is enabled or disabled)
       local edp; edp="$(edp_name)"
-      [ -z "$edp" ] && return 0
-
-      local tr; tr=$("$HYPRCTL" monitors -j | "$JQ" -r --arg n "$edp" \
-        '.[] | select(.name == $n) | .transform // 0')
-
-      # Preserve eDP current mode (respects platform-profile-switch Hz changes)
-      local edp_mode; edp_mode=$("$HYPRCTL" monitors -j | "$JQ" -r --arg n "$edp" \
-        '.[] | select(.name == $n) | "\(.width)x\(.height)@\(.refreshRate | floor)"')
-      [ -z "$edp_mode" ] && edp_mode="2560x1600@240"
-
-      local ext; ext="$(ext_name "$edp")"
+      local ext; ext="$(ext_name "${edp:-}")"
 
       if [ -n "$ext" ]; then
-        # External monitor connected: laptop at 0x0, external to the right
-        # Use preferred mode (native res, highest Hz) for external; preserve eDP mode
-        local lw; lw="$(calc_lw "$edp")"
-        [ -z "$lw" ] || [ "$lw" -lt 100 ] && lw=2048  # fallback
-        "$HYPRCTL" eval "hl.monitor({ output = \"$edp\", mode = \"$edp_mode\", position = \"0x0\", scale = 1.25, transform = $tr })" >/dev/null
-        "$HYPRCTL" eval "hl.monitor({ output = \"$ext\", mode = \"3840x2160@120\", position = \"''${lw}x0\", scale = 1.2 })" >/dev/null
-      else
-        # Laptop only
+        # External connected: disable laptop, use external only
+        if [ -n "$edp" ]; then
+          "$HYPRCTL" eval "hl.monitor({ output = \"$edp\", mode = \"disabled\" })" >/dev/null
+        fi
+        "$HYPRCTL" eval "hl.monitor({ output = \"$ext\", mode = \"3840x2160@120\", position = \"0x0\", scale = 1.25 })" >/dev/null
+      elif [ -n "$edp" ]; then
+        # Laptop only: restore eDP
+        local tr; tr=$("$HYPRCTL" monitors -j | "$JQ" -r --arg n "$edp" \
+          '.[] | select(.name == $n) | .transform // 0')
+        local edp_mode; edp_mode=$("$HYPRCTL" monitors -j | "$JQ" -r --arg n "$edp" \
+          '.[] | select(.name == $n) | "\(.width)x\(.height)@\(.refreshRate | floor)"')
+        [ -z "$edp_mode" ] && edp_mode="2560x1600@240"
         "$HYPRCTL" eval "hl.monitor({ output = \"$edp\", mode = \"$edp_mode\", position = \"0x0\", scale = 1.25, transform = $tr })" >/dev/null
       fi
       # Reapply wallpaper after layout change (Hyprland resets to default otherwise)
@@ -300,17 +333,49 @@ hyprctl eval "hl.config({[\"general.gaps_out\"]=0,[\"general.gaps_in\"]=0,[\"gen
   '';
 
   zoom-in = pkgs.writeShellScriptBin "hypr-zoom-in" ''
-    if [ -z "$HYPRLAND_INSTANCE_SIGNATURE" ]; then
-      export HYPRLAND_INSTANCE_SIGNATURE=$(ls -1t /run/user/1000/hypr 2>/dev/null | head -1)
-    fi
+    # Always resolve the live Hyprland socket — the inherited HYPRLAND_INSTANCE_SIGNATURE
+    # (e.g. from skwd-daemon's env) may point to a stale/crashed session. ss shows the
+    # socket actually listening; fall back to ls -1t only if ss finds nothing.
+    # Skip border theme in focus mode (borders are disabled)
+
+    _sock=$(ss -xlp 2>/dev/null | grep -o "/run/user/1000/hypr/[^ ]*\.socket\.sock" | head -1)
+    _sig=""
+    [ -n "$_sock" ] && _sig="$(basename "$(dirname "$_sock")")"
+    [ -z "$_sig" ] && _sig=$(ls -1t /run/user/1000/hypr 2>/dev/null | head -1)
+    export HYPRLAND_INSTANCE_SIGNATURE="$_sig"
     NEW=$(hyprctl getoption cursor:zoom_factor -j | jq '.float + 1')
     hyprctl eval "hl.config({[\"cursor.zoom_factor\"]=$NEW})"
   '';
   zoom-reset = pkgs.writeShellScriptBin "hypr-zoom-reset" ''
-    if [ -z "$HYPRLAND_INSTANCE_SIGNATURE" ]; then
-      export HYPRLAND_INSTANCE_SIGNATURE=$(ls -1t /run/user/1000/hypr 2>/dev/null | head -1)
-    fi
+    # Always resolve the live Hyprland socket — the inherited HYPRLAND_INSTANCE_SIGNATURE
+    # (e.g. from skwd-daemon's env) may point to a stale/crashed session. ss shows the
+    # socket actually listening; fall back to ls -1t only if ss finds nothing.
+    # Skip border theme in focus mode (borders are disabled)
+
+    _sock=$(ss -xlp 2>/dev/null | grep -o "/run/user/1000/hypr/[^ ]*\.socket\.sock" | head -1)
+    _sig=""
+    [ -n "$_sock" ] && _sig="$(basename "$(dirname "$_sock")")"
+    [ -z "$_sig" ] && _sig=$(ls -1t /run/user/1000/hypr 2>/dev/null | head -1)
+    export HYPRLAND_INSTANCE_SIGNATURE="$_sig"
     hyprctl eval "hl.config({[\"cursor.zoom_factor\"]=1})"
+  '';
+
+  wl-kbptr-launch = pkgs.writeShellScriptBin "wl-kbptr-launch" ''
+    # Single-instance: kill any running wl-kbptr before launching a fresh one so
+    # repeated RAlt taps can never stack overlays on top of each other.
+    pkill -x wl-kbptr 2>/dev/null || true
+    exec wl-kbptr -o modes=floating,click -o mode_floating.source=detect
+  '';
+
+  wl-kbptr-right-click = pkgs.writeShellScriptBin "wl-kbptr-right-click" ''
+    # Same as wl-kbptr-launch but right-click instead of left-click.
+    pkill -x wl-kbptr 2>/dev/null || true
+    exec wl-kbptr -o modes=floating,click -o mode_floating.source=detect -o mode_click.button=right
+  '';
+
+  wl-kbptr-kill = pkgs.writeShellScriptBin "wl-kbptr-kill" ''
+    # Panic exit: force-kill every wl-kbptr instance (clears a stacked/stranded overlay).
+    pkill -9 -x wl-kbptr 2>/dev/null || true
   '';
 
   hypr-ws-next = pkgs.writeShellScriptBin "hypr-ws-next" ''
@@ -341,21 +406,22 @@ hyprctl eval "hl.config({[\"general.gaps_out\"]=0,[\"general.gaps_in\"]=0,[\"gen
 
 
   hypr-skwd-toggle = pkgs.writeShellScriptBin "hypr-skwd-toggle" ''
-    SKWD_WALL_UI="$HOME/.local/share/skwd-wall-patched/shell.qml"
-    SKWD_CONFIG="$HOME/.config/skwd-wall/config.json"
-
-    FOCUSED_MONITOR=$(hyprctl monitors -j 2>/dev/null | jq -r '.[] | select(.focused == true) | .name')
-
-    if [ -n "$FOCUSED_MONITOR" ] && [ -f "$SKWD_CONFIG" ]; then
-      jq --arg mon "$FOCUSED_MONITOR" '.monitor = $mon' "$SKWD_CONFIG" > "''${SKWD_CONFIG}.tmp" && mv "''${SKWD_CONFIG}.tmp" "$SKWD_CONFIG"
+    # skwd-wall v2 picker. SKWD_WALL_OUTPUT pins the layer surface to the
+    # focused monitor (v2 reads it before falling back to the "monitor" key).
+    #
+    # Focus mode: the wallpaper picker is not launchable — a new wallpaper
+    # would re-fire the theme pipeline over the stripped-down scheme state
+    # (and defeat the point of a static focus look). SUPER+CTRL+SPACE opens
+    # the focus-scheme picker instead (quickshell IPC target "schemes").
+    if [ -f "$HOME/.cache/focus-mode" ]; then
+      qs -c desktop ipc call schemes toggle 2>/dev/null || true
+      exit 0
     fi
-
-    if pgrep -f "quickshell.*$SKWD_WALL_UI" >/dev/null 2>&1; then
-      pkill -f "quickshell.*$SKWD_WALL_UI"
+    if pgrep -x skwd-wall-v2 >/dev/null 2>&1; then
+      skwd-wall-v2 ui close 2>/dev/null || pkill -x skwd-wall-v2
     else
-      QSG_RENDERER=software \
-      QT_PLUGIN_PATH=${pkgs.lib.strings.makeSearchPath "lib/qt-6/plugins" [ pkgs.qt6.qtbase pkgs.qt6.qtimageformats pkgs.qt6.qtwayland ]} \
-      ${pkgs.quickshell}/bin/quickshell -p "$SKWD_WALL_UI" &
+      FOCUSED_MONITOR=$(hyprctl monitors -j 2>/dev/null | jq -r '.[] | select(.focused == true) | .name')
+      SKWD_WALL_OUTPUT="''${FOCUSED_MONITOR:-}" setsid skwd-wall-v2 >/dev/null 2>&1 &
     fi
   '';
   hypr-layout-toggle = pkgs.writeShellScriptBin "hypr-layout-toggle" ''
@@ -519,10 +585,20 @@ hypr-shot = pkgs.writeShellScriptBin "hypr-shot" ''
     LAST=""
 
     discover_sig() {
-      HYPRLAND_INSTANCE_SIGNATURE=$(ls -d /run/user/1000/hypr/*/ 2>/dev/null | tail -1 | xargs basename 2>/dev/null || echo "")
-      [ -n "$HYPRLAND_INSTANCE_SIGNATURE" ] && export HYPRLAND_INSTANCE_SIGNATURE
+      HYPRLAND_INSTANCE_SIGNATURE=""
+      for d in /run/user/1000/hypr/*/; do
+        s=$(basename "$d" 2>/dev/null) || continue
+        if ${pkgs.hyprland}/bin/hyprctl --instance "$s" monitors -j >/dev/null 2>&1; then
+          HYPRLAND_INSTANCE_SIGNATURE=$s; break
+        fi
+      done
+      if [ -n "$HYPRLAND_INSTANCE_SIGNATURE" ]; then
+        export HYPRLAND_INSTANCE_SIGNATURE
+      fi
     }
     discover_sig
+    # Daemon (Restart=always): no live compositor yet -> exit 1 so systemd retries.
+    if [ -z "''${HYPRLAND_INSTANCE_SIGNATURE:-}" ]; then exit 1; fi
 
     # Cache eDP name (rarely changes)
     EDP=""
@@ -588,6 +664,7 @@ in
     swaybg hyprsunset hypridle discord jq qt6.qtimageformats
     launch-tui audio-switch nightlight-toggle idle-toggle
     monitor-scaling monitor-internal-toggle monitor-mirror-toggle monitor-auto-layout auto-rotate hypr-skwd-toggle hypr-layout-toggle gaps-toggle pin-toggle zoom-in zoom-reset hypr-ws-next hypr-ws-prev hypr-ws-focus arch-chroot hypr-shot hyprland-border-theme
+    wl-kbptr-launch wl-kbptr-right-click wl-kbptr-kill
   ];
 
   systemd.user.services.hypr-monitor-auto-layout = {
@@ -635,7 +712,9 @@ in
         ["decoration.blur.passes"] = 3,
         ["decoration.blur.noise"]  = 0.0,
         ["decoration.blur.popups"] = true,
-        ["decoration.blur.brightness"] = 0.7,
+        ["decoration.blur.brightness"] = 0.5,
+        ["decoration.dim_special"] = 0.35,
+        ["decoration.blur.special"] = false,
         ["decoration.shadow.enabled"] = true,
         ["decoration.shadow.range"] = 16,
         ["decoration.shadow.color"] = "rgba(00000050)",
@@ -645,7 +724,7 @@ in
         ["group.col.border_inactive"] = "rgba(55555533)",
         ["dwindle.force_split"] = 0,
         ["dwindle.preserve_split"] = true,
-        ["misc.force_default_wallpaper"] = 0,
+        ["misc.force_default_wallpaper"] = -1,
         ["cursor.hide_on_key_press"] = true,
         ["render.direct_scanout"] = true,
       })
@@ -657,6 +736,16 @@ in
 
       -- ═══ Layer blur ═══
       hl.layer_rule({match = {namespace = "omarchy-menu"}, blur = true})
+
+      -- ═══ Omni menu: no compositor animation on the layer ═══
+      -- The omni is a persistent surface resized 1x1 <-> full-screen at
+      -- open/close. Hyprland treats that resize as a layer (re)show and
+      -- plays the `layers` animation on it — the surface content scales
+      -- from ~20% to 100% (verified frame-by-frame on an isolated output:
+      -- the card's bbox grows 300x331 -> 1440x734 with easeOutQuint, while
+      -- the QML content is a constant 720x800). no_anim keeps the resize
+      -- instant so the QML enter choreography is the only motion.
+      hl.layer_rule({match = {namespace = "omni-menu"}, no_anim = true})
 
       -- ═══ Input ═══
       hl.config({
@@ -672,10 +761,21 @@ in
       -- ═══ Layer blur ═══
 
       -- ═══ Monitors ═══
-      -- Laptop default (landscape). Docked layout applied by hypr-monitor-auto-layout.
-      -- Dell S3225QS: 4K@120Hz via Intel USB-C DP (no PRIME latency). Laptop in portrait left of Dell.
-      -- Laptop default (landscape). Docked layout applied by hypr-monitor-auto-layout.
-      hl.monitor({ output = "eDP-1", mode = "2560x1600@240", position = "0x0", scale = 1.25 })
+      -- External 4K monitor: 4K@120Hz via Intel USB-C DP (no PRIME latency).
+      hl.monitor({ output = "DP-1", mode = "3840x2160@120", position = "auto", scale = 1.25 })
+
+      -- eDP-1: scale is pinned here so the very first monitor apply already
+      -- carries the correct value. hypr-monitor-auto-layout still owns mode,
+      -- position and transform at runtime (it disables eDP-1 when an external
+      -- monitor is attached; auto-rotate re-applies mode+transform).
+      --
+      -- WHY: with no rule, Hyprland derives the scale from the panel's PPI
+      -- (189 PPI -> getDefaultScale() 1.5 -> fractional search lands on 1.6).
+      -- The layout script corrects it to 1.25 a moment later. hyprlock samples
+      -- an output's fractional scale ONCE when it builds its session-lock
+      -- surface, and the startup hook fires the layout and the first lock in the
+      -- same burst -- so the first lock can be built against the unsettled scale.
+      hl.monitor({ output = "eDP-1", scale = 1.25 })
 
 
       -- ═══ Workspace Names (Kanji) ═══
@@ -697,13 +797,14 @@ in
       hl.curve("linear",           { type = "bezier", points = { {0, 0}, {1, 1} } })
       hl.curve("almostLinear",     { type = "bezier", points = { {0.5, 0.5}, {0.75, 1.0} } })
       hl.curve("quick",            { type = "bezier", points = { {0.15, 0}, {0.1, 1} } })
+      hl.curve("niercurve",        { type = "bezier", points = { {0.4, 0}, {0.2, 1} } })
 
       -- ═══ Animations ═══
       hl.animation({ leaf = "global",         enabled = true, speed = 10,    bezier = "default" })
       hl.animation({ leaf = "border",         enabled = true, speed = 5.39,  bezier = "easeOutQuint" })
-      hl.animation({ leaf = "windows",        enabled = true, speed = 4.79,  bezier = "easeOutQuint" })
-      hl.animation({ leaf = "windowsIn",      enabled = true, speed = 4.1,   bezier = "easeOutQuint",   style = "popin 87%" })
-      hl.animation({ leaf = "windowsOut",     enabled = true, speed = 1.49,  bezier = "linear",         style = "popin 87%" })
+      hl.animation({ leaf = "windows",        enabled = true, speed = 3,     bezier = "niercurve",     style = "slide" })
+      hl.animation({ leaf = "windowsIn",      enabled = true, speed = 3,     bezier = "niercurve",     style = "slide" })
+      hl.animation({ leaf = "windowsOut",     enabled = true, speed = 3,     bezier = "niercurve",     style = "slide" })
       hl.animation({ leaf = "fadeIn",         enabled = true, speed = 1.73,  bezier = "almostLinear" })
       hl.animation({ leaf = "fadeOut",        enabled = true, speed = 1.46,  bezier = "almostLinear" })
       hl.animation({ leaf = "fade",           enabled = true, speed = 3.03,  bezier = "quick" })
@@ -713,17 +814,24 @@ in
       hl.animation({ leaf = "fadeLayersIn",   enabled = true, speed = 1.79,  bezier = "almostLinear" })
       hl.animation({ leaf = "fadeLayersOut",  enabled = true, speed = 1.39,  bezier = "almostLinear" })
       hl.animation({ leaf = "workspaces",     enabled = true, speed = 4.5,   bezier = "easeOutQuint", style = "slide" })
+      hl.animation({ leaf = "specialWorkspaceIn", enabled = true, speed = 5.0, bezier = "easeOutQuint", style = "slidevert bottom" })
+      hl.animation({ leaf = "specialWorkspaceOut", enabled = true, speed = 5.0, bezier = "easeOutQuint", style = "slidevert top" })
 
       -- ═══ Window Rules ═══
-      hl.window_rule({ match = { title = "^(tui-impala)$" },    float = true, center = true, size = { 900, 600 } })
-      hl.window_rule({ match = { title = "^(tui-btop)$" },      float = true, center = true, size = { 900, 600 } })
-      hl.window_rule({ match = { title = "^(tui-wiremix)$" },   float = true, center = true, size = { 900, 600 } })
-      hl.window_rule({ match = { title = "^(tui-bluetui)$" },   float = true, center = true, size = { 900, 600 } })
-      hl.window_rule({ match = { title = "^(tui-yazi)$" }, float = true, center = true, size = { 900, 600 } })
-      hl.window_rule({ match = { title = "^(tui-chat)$" }, float = true, center = true, size = { 900, 600 } })
+      -- TUI floaters (SUPER+CTRL): pre-session popin 87% in/out.
+      -- NOTE: match initial_title — the `animation` effect is DYNAMIC and
+      -- re-evaluates against the LIVE title; these TUIs retitle themselves
+      -- after launch (btop etc), which would drop the rule and make the
+      -- close fall back to the global slide.
+      hl.window_rule({ match = { initial_title = "^(tui-impala)$" },  animation = "popin 87%", float = true, center = true, size = { 900, 600 } })
+      hl.window_rule({ match = { initial_title = "^(tui-btop)$" },    animation = "popin 87%", float = true, center = true, size = { 900, 600 } })
+      hl.window_rule({ match = { initial_title = "^(tui-wiremix)$" }, animation = "popin 87%", float = true, center = true, size = { 900, 600 } })
+      hl.window_rule({ match = { initial_title = "^(tui-bluetui)$" }, animation = "popin 87%", float = true, center = true, size = { 900, 600 } })
+      hl.window_rule({ match = { initial_title = "^(tui-yazi)$" },    animation = "popin 87%", float = true, center = true, size = { 900, 600 } })
+      hl.window_rule({ match = { initial_title = "^(tui-chat)$" },    animation = "popin 87%", float = true, center = true, size = { 900, 600 } })
       hl.window_rule({ match = { class = "^(xdg-desktop-portal-gtk)$" }, float = true, center = true, size = { 900, 600 } })
-      hl.window_rule({ match = { title = "^(yazi-file-chooser)$" }, float = true, center = true, size = { 900, 600 } })
-      hl.window_rule({ match = { title = "^(float-term)$" },    float = true, center = true, size = { 900, 600 } })
+      hl.window_rule({ match = { initial_title = "^(yazi-file-chooser)$" }, animation = "popin 87%", float = true, center = true, size = { 900, 600 } })
+      hl.window_rule({ match = { initial_title = "^(float-term)$" },  animation = "popin 87%", float = true, center = true, size = { 900, 600 } })
 
       -- ═══ Media windows — float ═══
       hl.window_rule({ match = { class = "^(imv)$" },              float = true, center = true, size = { 1200, 800 } })
@@ -768,6 +876,13 @@ in
       hl.bind("SHIFT + XF86MonBrightnessDown", hl.dsp.exec_cmd("brightnessctl --device intel_backlight set 1%"),  { repeating = true })
       hl.bind("ALT + XF86MonBrightnessUp",     hl.dsp.exec_cmd("brightnessctl --device intel_backlight set +1%"), { repeating = true })
       hl.bind("ALT + XF86MonBrightnessDown",   hl.dsp.exec_cmd("brightnessctl --device intel_backlight set 1%-"), { repeating = true })
+      -- External monitor brightness (DDC/CI via ext-brightness)
+      hl.bind("SUPER + XF86MonBrightnessUp",   hl.dsp.exec_cmd("$HOME/.local/bin/ext-brightness up"),   { repeating = true })
+      hl.bind("SUPER + XF86MonBrightnessDown", hl.dsp.exec_cmd("$HOME/.local/bin/ext-brightness down"), { repeating = true })
+      hl.bind("SUPER + SHIFT + XF86MonBrightnessUp",   hl.dsp.exec_cmd("$HOME/.local/bin/ext-brightness max"), { repeating = true })
+      hl.bind("SUPER + SHIFT + XF86MonBrightnessDown", hl.dsp.exec_cmd("$HOME/.local/bin/ext-brightness min"), { repeating = true })
+      hl.bind("SUPER + ALT + XF86MonBrightnessUp",     hl.dsp.exec_cmd("$HOME/.local/bin/ext-brightness fine-up"), { repeating = true })
+      hl.bind("SUPER + ALT + XF86MonBrightnessDown",   hl.dsp.exec_cmd("$HOME/.local/bin/ext-brightness fine-down"), { repeating = true })
       hl.bind("XF86KbdBrightnessUp",     hl.dsp.exec_cmd("$HOME/.local/bin/kb-backlight-osd up"), { repeating = true })
       hl.bind("XF86KbdBrightnessDown",   hl.dsp.exec_cmd("$HOME/.local/bin/kb-backlight-osd down"), { repeating = true })
       hl.bind("XF86TouchpadToggle",      hl.dsp.exec_cmd("hyprctl keyword device:touchpad:enabled toggle"), { repeating = true })
@@ -793,6 +908,19 @@ in
       hl.bind("SUPER + CTRL + J",        hl.dsp.layout("togglesplit"))
       hl.bind("SUPER + O",               hl.dsp.exec_cmd("hypr-pin-toggle"))
       hl.bind("SUPER + CTRL + BACKSPACE", hl.dsp.exec_cmd("hypr-layout-toggle"))
+
+      -- ╔═══ Keyboard Mouse (wl-kbptr) ═══
+      -- Corne right-alt tap (ZMK &mt RALT F14) arrives at the compositor as
+      -- keycode 192 = XF86Launch5 (xkb mapping). Bind that. F14 kept as a
+      -- fallback in case the layout differs. Laptop right-alt = XF86Tools.
+      hl.bind("XF86Launch5", hl.dsp.exec_cmd("wl-kbptr-launch"))
+      hl.bind("XF86Tools", hl.dsp.exec_cmd("wl-kbptr-launch"))
+      hl.bind("F13", hl.dsp.exec_cmd("wl-kbptr-launch"))
+      hl.bind("F14", hl.dsp.exec_cmd("wl-kbptr-launch"))
+
+      -- Shift + Right-Alt tap (Corne emits F14 on RAlt tap) = right-click
+      hl.bind("SHIFT + XF86Launch5", hl.dsp.exec_cmd("wl-kbptr-right-click"))
+
 
       -- Move focus
       hl.bind("SUPER + H",     hl.dsp.focus({ direction = "l" }))
@@ -892,6 +1020,9 @@ in
       hl.bind("SUPER + ALT + up",               hl.dsp.window.move({ into_group = "u" }))
       hl.bind("SUPER + ALT + down",             hl.dsp.window.move({ into_group = "d" }))
       hl.bind("SUPER + ALT + TAB",              hl.dsp.group.next())
+      hl.bind("SUPER + SHIFT + B",           hl.dsp.exec_cmd("qs -c desktop ipc call battery toggle"))
+      hl.bind("SUPER + SHIFT + C",           hl.dsp.exec_cmd("qs -c desktop ipc call calendar toggle"))
+      hl.bind("SUPER + SHIFT + W",           hl.dsp.exec_cmd("qs -c desktop ipc call weather toggle"))
       hl.bind("SUPER + ALT + SHIFT + TAB",      hl.dsp.group.prev())
       hl.bind("SUPER + bracketleft",            hl.dsp.group.prev())
       hl.bind("SUPER + bracketright",           hl.dsp.group.next())
@@ -913,9 +1044,9 @@ in
 
       -- ═══ Audio / Media ═══
       hl.bind("SUPER + XF86AudioMute",   hl.dsp.exec_cmd("hypr-audio-switch"))
+      hl.bind("SUPER + B", hl.dsp.exec_cmd("playerctl previous"))
       hl.bind("SUPER + M", hl.dsp.exec_cmd("playerctl play-pause"))
       hl.bind("SUPER + N", hl.dsp.exec_cmd("playerctl next"))
-      hl.bind("SUPER + B", hl.dsp.exec_cmd("playerctl previous"))
       hl.bind("SUPER + XF86AudioLowerVolume", hl.dsp.exec_cmd("brightnessctl --device intel_backlight set 10%-"))
       hl.bind("SUPER + XF86AudioRaiseVolume", hl.dsp.exec_cmd("brightnessctl --device intel_backlight set +10%"))
       hl.bind("CTRL + XF86AudioRaiseVolume",  hl.dsp.exec_cmd("brightnessctl --device intel_backlight set +10%"))
@@ -968,6 +1099,7 @@ in
       hl.bind("SUPER + CTRL + SHIFT + Z", hl.dsp.exec_cmd("hypr-zoom-reset"))
       -- hl.bind("SUPER + BACKSPACE", ...)  # removed, opacity toggle
       hl.bind("SUPER + SHIFT + BACKSPACE", hl.dsp.exec_cmd("hypr-gaps-toggle"))
+      hl.bind("SUPER + SHIFT + ESCAPE", hl.dsp.exec_cmd("hypr-focus-toggle"))
       -- hl.bind("SUPER + CTRL + BACKSPACE", hl.dsp.exec_cmd("hyprctl keyword dwindle:force_split toggle 0 2"))  # replaced by layout-toggle
       hl.bind("SUPER + CTRL + N", hl.dsp.exec_cmd("hypr-nightlight-toggle"))
       hl.bind("SUPER + CTRL + I", hl.dsp.exec_cmd("hypr-idle-toggle"))
@@ -989,27 +1121,34 @@ in
       -- hl.bind("SUPER + SHIFT + CTRL + R", hl.dsp.exec_cmd("notify-send 'NYI' 'Clear reminders'"))  # removed NYI
 
       hl.bind("XF86PowerOff", hl.dsp.exec_cmd("systemd-run --user --unit=power-btn-lock $HOME/.local/bin/power-btn-lock"))
-      -- Float Bitwarden extension popups (initialTitle is "Zen Browser", so window_rule can't catch them)
-      local _bw_floated = {}
-      hl.on("window.title", function(w)
-        if w ~= nil and w.title:find("Bitwarden") and not _bw_floated[w.address] then
-          _bw_floated[w.address] = true
-          hl.dispatch(hl.dsp.window.float({ action = "on", window = w }))
-          hl.dispatch(hl.dsp.window.resize({ x = 400, y = 550, window = w }))
-          hl.dispatch(hl.dsp.window.center({ window = w }))
-        end
-      end)
+
       -- ═══ Startup ═══
       hl.on("hyprland.start", function()
         hl.exec_cmd("hypr-monitor-auto-layout")
+
         hl.exec_cmd("systemctl --user start hypr-monitor-auto-layout.service")
         -- hl.exec_cmd("hypr-auto-rotate") -- managed by systemd service
         hl.exec_cmd("wl-paste --type text --watch cliphist store")
         hl.exec_cmd("wl-paste --type image --watch cliphist store")
-        hl.exec_cmd("systemctl --user import-environment WAYLAND_DISPLAY QT_QPA_PLATFORM DISPLAY XDG_CURRENT_DESKTOP XDG_SESSION_DESKTOP XDG_COLOR_SCHEME GTK_THEME && dbus-update-activation-environment --systemd WAYLAND_DISPLAY XDG_CURRENT_DESKTOP XDG_SESSION_DESKTOP XDG_COLOR_SCHEME GTK_THEME")
+        hl.exec_cmd("systemctl --user import-environment WAYLAND_DISPLAY QT_QPA_PLATFORM DISPLAY XDG_CURRENT_DESKTOP XDG_SESSION_DESKTOP XDG_COLOR_SCHEME GTK_THEME XDG_DATA_DIRS HYPRLAND_INSTANCE_SIGNATURE && dbus-update-activation-environment --systemd WAYLAND_DISPLAY XDG_CURRENT_DESKTOP XDG_SESSION_DESKTOP XDG_COLOR_SCHEME GTK_THEME XDG_DATA_DIRS HYPRLAND_INSTANCE_SIGNATURE")
         hl.exec_cmd("systemctl --user restart xdg-desktop-portal-gtk.service")
-        hl.exec_cmd("systemctl --user enable --now skwd-daemon")
-        hl.exec_cmd("qs -n -d -c desktop")
+        hl.exec_cmd("systemctl --user start skwd-walld")
+        -- Focus mode persists as a guard file, but the compositor settings
+        -- (no gaps/borders/shadow/blur/animations) live only in the running
+        -- session, and skwd-walld's boot restore runs matugen against the
+        -- flat focus wallpaper — overwriting the app themes with its
+        -- fallback palette. This re-asserts the compositor settings and
+        -- re-runs the scheme apply. No-op when focus mode is off.
+        hl.exec_cmd("focus-boot-apply")
+        -- Quickshell is started via its systemd unit so exactly one process
+        -- owns the shell (see the note below). It inherits the live
+        -- HYPRLAND_INSTANCE_SIGNATURE from the import-environment call above.
+        -- Start the UNIT rather than a bare binary: systemd must own the
+        -- shell, otherwise refresh_shell()'s `systemctl restart` spawns a
+        -- SECOND copy (the hook-launched one is invisible to the unit) and
+        -- the user gets a duplicate bar. The unit inherits the live
+        -- HYPRLAND_INSTANCE_SIGNATURE from the import-environment call above.
+        hl.exec_cmd("systemctl --user start quickshell-desktop")
         hl.exec_cmd("hyprland-border-theme")
         hl.exec_cmd("kdeconnectd")
         -- Rename persistent workspaces to kanji
@@ -1023,8 +1162,40 @@ in
         hl.dispatch(hl.dsp.workspace.rename({ workspace = 8, name = "八" }))
         hl.dispatch(hl.dsp.workspace.rename({ workspace = 9, name = "九" }))
         hl.dispatch(hl.dsp.workspace.rename({ workspace = 10, name = "十" }))
-        hl.exec_cmd("hyprlock --immediate-render --no-fade-in")
+        -- Startup lock via the wrapper: it records the monitor scale the lock
+        -- was built against (see home/nate/bin/lock-at-startup) so the
+        -- first-lock scale race can be confirmed from data, not inferred.
+        hl.exec_cmd("lock-at-startup")
       end)
+
+      -- ═══ Focus mode re-assert (survives autoreload) ═══
+      -- Hyprland's autoreload is ON, so every rebuild rewrites this file and
+      -- silently reloads the config, wiping the focus-mode compositor
+      -- settings (they live only in the running session). The start hook
+      -- only covers login. This guarded block is the LAST writer on every
+      -- parse, so focus mode survives a mid-session rebuild too. Values must
+      -- stay in sync with focus_compositor_apply() in bin/hypr-focus-toggle.
+      do
+        local _guard = io.open(os.getenv("HOME") .. "/.cache/focus-mode", "r")
+        if _guard then
+          _guard:close()
+          hl.config({
+            ["general.border_size"] = 0,
+            ["general.gaps_out"] = 0,
+            ["general.gaps_in"] = 0,
+            ["general.col.active_border"]   = "rgba(00000000)",
+            ["general.col.inactive_border"] = "rgba(00000000)",
+            ["group.col.border_active"]     = "rgba(00000000)",
+            ["group.col.border_inactive"]   = "rgba(00000000)",
+            ["decoration.rounding"] = 0,
+            ["decoration.shadow.enabled"] = false,
+            ["decoration.blur.enabled"] = false,
+            ["decoration.blur.brightness"] = 1.0,
+            ["decoration.dim_special"] = 0.0,
+            ["animations.enabled"] = false,
+          })
+        end
+      end
     '';
   };
 

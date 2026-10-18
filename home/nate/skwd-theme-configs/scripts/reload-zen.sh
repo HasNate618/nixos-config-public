@@ -2,18 +2,23 @@
 # reload-zen.sh — updates Zen transparency pref from matugen-generated CSS
 echo "$(date): called" >> /tmp/zen-reload.log
 
-ZEN_PROFILE="/home/nate/.config/zen/7khcdo47.Default (release)"
+ZEN_PROFILE="/home/nate/.config/zen/xxxxxxxx.Default (release)"
 CSS_FILE="$ZEN_PROFILE/chrome/zen-themes/matugen-transparency/chrome.css"
 PREFS_FILE="$ZEN_PROFILE/prefs.js"
 USER_JS="$ZEN_PROFILE/user.js"
 
 [ -f "$CSS_FILE" ] || exit 0
 
-# Extract the transparency color from the CSS (no scaling — all apps use
-# the same colors.surface now)
+# Extract the transparency color from the CSS and apply the Zen warmth
+# compensation (R*2/5, G/B*10/13 — calibrated: Gecko renders warmer than
+# GTK/foot). Scaling is applied to the VALUE, not the file, so repeated
+# reload calls (multi-monitor matugen batches) never compound.
 COLOR=$(grep -m1 -F -- '--zen-transparency-color' "$CSS_FILE" | sed 's/.*: *\([^;]*\);.*/\1/')
 
 [ -z "$COLOR" ] && exit 0
+
+SCALED=$(/home/nate/.config/skwd-wall/scripts/zen-red-scale.py --color "$COLOR" 2>/dev/null)
+[ -n "$SCALED" ] && COLOR="$SCALED"
 
 # Update prefs.js and user.js
 for pf in "$PREFS_FILE" "$USER_JS"; do

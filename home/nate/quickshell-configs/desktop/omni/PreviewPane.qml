@@ -9,10 +9,24 @@ Item {
 
     required property var omni
 
+    // Seal square mark — same separator language as the bar clock.
+    Text {
+        id: nameMark
+        anchors.left: parent.left
+        anchors.top: parent.top
+        anchors.topMargin: 3
+        visible: pp.omni.clipMode
+        text: "\u25aa"
+        color: pp.omni.seal
+        font.family: pp.omni.mono
+        font.pixelSize: 10 * pp.omni.fontScale
+    }
+
     Text {
         id: previewName
         anchors.top: parent.top
-        anchors.left: parent.left
+        anchors.left: nameMark.right
+        anchors.leftMargin: 6
         anchors.right: parent.right
         text: {
             const o = pp.omni;
@@ -38,7 +52,7 @@ Item {
         text: {
             const o = pp.omni;
             const it = o.filteredItems[o.selectedIndex];
-            if (o.clipMode) return it ? ("clip #" + (it.clipId || "") + "  \u00b7  \u21b5 copies to clipboard") : "";
+            if (o.clipMode) return it ? ("clip #" + (it.clipId || "") + "  \u25aa  \u21b5 copies to clipboard") : "";
             return "";
         }
         color: pp.omni.inkDeep

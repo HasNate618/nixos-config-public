@@ -17,30 +17,42 @@ FLAKE_DIR="/etc/nixos"
 
 # Extract --flake target from args or default to current hostname
 FLAKE_TARGET="$HOSTNAME"
+ACTION="switch"
 EXTRA_ARGS=()
 
-for (( i=1; i<=$#; i++ )); do
+i=1
+while (( i<=$# )); do
   arg="${!i}"
-  if [[ "$arg" == "--flake" ]]; then
-    next=$((i+1))
-    flake_val="${!next}"
-    # Extract target from .#target format
-    FLAKE_TARGET="${flake_val##*.#}"
-    EXTRA_ARGS+=("$arg" "$flake_val")
-    ((i++))
-  else
-    EXTRA_ARGS+=("$arg")
-  fi
+  case "$arg" in
+    --flake)
+      next=$((i+1))
+      flake_val="${!next}"
+      # Extract target from .#target format
+      FLAKE_TARGET="${flake_val##*.#}"
+      # Drop it: we always supply our own --flake below (avoids duplicates)
+      ((i+=2))
+      ;;
+    switch|boot|test|build|dry-build|dry-run|dry-activate|build-vm|build-vm-with-bootloader|edit|repl|rollback|list-generations)
+      ACTION="$arg"
+      ((i+=1))
+      ;;
+    *)
+      EXTRA_ARGS+=("$arg")
+      ((i+=1))
+      ;;
+  esac
 done
 
 # Validate target matches hostname
 if [[ "$FLAKE_TARGET" != "$HOSTNAME" ]]; then
   echo "ERROR: Flake target '$FLAKE_TARGET' doesn't match hostname '$HOSTNAME'" >&2
   echo "" >&2
-  echo "This would rebuild with the wrong host config (like the aspire incident)." >&2
-  echo "If you really mean to do this, use: nixos-rebuild switch --flake .#$FLAKE_TARGET" >&2
+  echo "This would rebuild with the wrong host config." >&2
+  echo "If you really mean to do this, use: nixos-rebuild --flake .#$FLAKE_TARGET $ACTION" >&2
   exit 1
 fi
 
-# Run the rebuild
-exec nixos-rebuild switch --flake "$FLAKE_DIR" "${EXTRA_ARGS[@]}"
+# Run the rebuild.
+# NOTE (2026-09-19): nixos-rebuild now requires the action AFTER all options
+# (`switch --flake ...` fails with "unrecognized arguments: switch").
+exec nixos-rebuild --flake "$FLAKE_DIR#$FLAKE_TARGET" "${EXTRA_ARGS[@]}" "$ACTION"

@@ -8,7 +8,10 @@ let
   uid = 1000;
   gid = 1000;
   dataDir = "/var/lib/arr-stack";
-  downloadsDir = "/var/lib/arr-stack/downloads";
+  # Downloads live on the NAS, not the root disk. This keeps large 4K REMUX
+  # grabs off /dev/sda1 (only 226G) and lets Radarr/Sonarr hardlink imports
+  # within the same NAS filesystem instead of copying.
+  downloadsDir = "/srv/homelab/data/nas/media/downloads";
   mediaDir = "/srv/homelab/data/nas/media";
 
   securityFlags = ''
@@ -59,7 +62,11 @@ in
 {
   # Create data directories
   system.activationScripts.arr-stack-dirs = lib.mkAfter ''
-    mkdir -p ${dataDir}/{sonarr,radarr,lidarr,bazarr,prowlarr,downloads,gluetun,qbittorrent}
+    mkdir -p ${dataDir}/{sonarr,radarr,lidarr,bazarr,prowlarr,gluetun,qbittorrent}
+    chown -R ${toString uid}:${toString gid} ${dataDir}
+    # Downloads live on the NAS so large grabs never fill the root disk.
+    mkdir -p ${downloadsDir}
+    chown -R ${toString uid}:${toString gid} ${downloadsDir} || true
     chown -R ${toString uid}:${toString gid} ${dataDir}
   '';
 
@@ -304,18 +311,18 @@ in
           ${docker} exec qbittorrent python3 /tmp/qbit-setup.py "$TEMP_PASS" "$QBIT_PW"
           ${docker} exec qbittorrent rm /tmp/qbit-setup.py
         fi
-        # Fix proxy settings — qBittorrent writes wrong defaults on first boot
-        # HTTP proxy on 127.0.0.1:8888 works (gluetun), SOCKS5 on 1080 doesn't
+        # Fix proxy settings — qBittorrent writes wrong defaults on first boot.
+        # Use SOCKS5 on 127.0.0.1:1080 (gluetun). Unlike HTTP/8888, SOCKS5 can
         CONF="/var/lib/arr-stack/qbittorrent/qBittorrent/qBittorrent.conf"
         NEEDS_FIX=0
-        if grep -q "Hostname=172.18.0.8" "$CONF" 2>/dev/null || grep -q "Type=2$" "$CONF" 2>/dev/null; then
+        if grep -q "Hostname=172.18.0.8" "$CONF" 2>/dev/null || grep -q "Type=3$" "$CONF" 2>/dev/null; then
           NEEDS_FIX=1
         fi
         if [ "$NEEDS_FIX" = "1" ]; then
           sed -i \
             -e 's/^Hostname=.*/Hostname=127.0.0.1/' \
-            -e 's/^Port=.*/Port=8888/' \
-            -e 's/^Type=.*/Type=3/' \
+            -e 's/^Port=.*/Port=1080/' \
+            -e 's/^Type=.*/Type=2/' \
             -e 's/^UseProxyForDHTConnections=.*/UseProxyForDHTConnections=true/' \
             "$CONF"
           # Also fix the parent config if it exists
@@ -323,8 +330,8 @@ in
           if [ -f "$PARENT_CONF" ]; then
             sed -i \
               -e 's/^Hostname=.*/Hostname=127.0.0.1/' \
-              -e 's/^Port=.*/Port=8888/' \
-              -e 's/^Type=.*/Type=3/' \
+              -e 's/^Port=.*/Port=1080/' \
+              -e 's/^Type=.*/Type=2/' \
               -e 's/^UseProxyForDHTConnections=.*/UseProxyForDHTConnections=true/' \
               "$PARENT_CONF"
           fi
@@ -372,6 +379,131 @@ in
       ExecStop = "${docker} stop byparr";
     };
   };
+
+  # --- Dedicated gluetun for SearXNG with rotating NordVPN exit ---
+  # Separate container so SearXNG egress rotates independently of torrent VPN.
+  systemd.services.gluetun-search = {
+    description = "Gluetun — Rotating VPN Tunnel for SearXNG (Docker)";
+    after = [ "network.target" "docker.service" ];
+    requires = [ "docker.service" ];
+    wantedBy = [ "multi-user.target" ];
+    serviceConfig = {
+      Type = "oneshot";
+      RemainAfterExit = true;
+      ExecStartPre = "''${pkgs.bash}/bin/bash -c \"''${docker} pull qmcgaw/gluetun:latest || true\"";
+      ExecStart = pkgs.writeScript "gluetun-search-start" ''
+        #!${pkgs.bash}/bin/bash
+        ${docker} rm -f gluetun-search 2>/dev/null || true
+        exec ${docker} run -d --name gluetun-search \
+          --restart unless-stopped \
+          --network proxy \
+          --cap-add NET_ADMIN \
+          --device /dev/net/tun:/dev/net/tun \
+          --security-opt no-new-privileges \
+          --memory 512m \
+          --cpus 1.0 \
+          --pids-limit 50 \
+          -p 127.0.0.1:8088:8888 \
+          -v ${dataDir}/gluetun-search:/gluetun \
+          -e VPN_SERVICE_PROVIDER=nordvpn \
+          -e VPN_TYPE=wireguard \
+          -e WIREGUARD_PRIVATE_KEY=$(cat ${config.sops.secrets."nordvpn-wg-key".path}) \
+          -e DOT=on \
+          -e HTTPPROXY=on \
+          -e DNS_ADFILTER_BLOCK_ENABLED=on \
+          -e SOCKS5_ENABLED=on \
+          -e SOCKS5_LISTENING_ADDRESS=:1080 \
+          -e SERVER_COUNTRIES=Netherlands \
+          -e TZ=America/Toronto \
+          qmcgaw/gluetun:latest
+      '';
+      ExecStop = "${docker} stop gluetun-search";
+    };
+  };
+
+  # Rotation script: pick a random WireGuard hostname, restart gluetun-search,
+  # then restart searxng (its per-engine suspensions live in memory and only
+  # clear on container restart).
+  systemd.services.gluetun-search-rotate = {
+    description = "Rotate SearXNG gluetun exit to a random NordVPN server";
+    after = [ "gluetun-search.service" "searxng.service" ];
+    requires = [ "docker.service" ];
+    serviceConfig = {
+      Type = "oneshot";
+      ExecStart = pkgs.writeScript "gluetun-search-rotate" ''
+        #!${pkgs.bash}/bin/bash
+        set -uo pipefail
+        CACHE="${dataDir}/gluetun/servers/nordvpn.json"
+        GU=gluetun-search
+        SX=searxng
+        docker="${docker}"
+        WGKEY=$(cat ${config.sops.secrets."nordvpn-wg-key".path})
+        for attempt in $(seq 1 8); do
+          HOSTNAME="$(${pkgs.python3}/bin/python3 -c 'import json,random,sys; d=json.load(open(sys.argv[1])); w=[s["hostname"] for s in d["servers"] if "wireguard" in s["vpn"].lower()]; print(random.choice(w))' "$CACHE")"
+          echo "[rotate] $(date -u +%FT%TZ) attempt $attempt -> $HOSTNAME"
+          "$docker" rm -f "$GU" 2>/dev/null || true
+          "$docker" run -d --name "$GU" \
+            --restart unless-stopped \
+            --network proxy \
+            --cap-add NET_ADMIN \
+            --device /dev/net/tun:/dev/net/tun \
+            --security-opt no-new-privileges \
+            --memory 512m --cpus 1.0 --pids-limit 50 \
+            -p 127.0.0.1:8088:8888 \
+            -v ${dataDir}/gluetun-search:/gluetun \
+            -e VPN_SERVICE_PROVIDER=nordvpn \
+            -e VPN_TYPE=wireguard \
+            -e WIREGUARD_PRIVATE_KEY="$WGKEY" \
+            -e DOT=on -e HTTPPROXY=on -e DNS_ADFILTER_BLOCK_ENABLED=on \
+            -e SOCKS5_ENABLED=on -e SOCKS5_LISTENING_ADDRESS=:1080 \
+            -e SERVER_HOSTNAMES="$HOSTNAME" \
+            -e TZ=America/Toronto \
+            qmcgaw/gluetun:latest >/dev/null
+          ok=0
+          for i in $(seq 1 20); do
+            if "$docker" exec "$GU" wget -qO- http://127.0.0.1:9999 >/dev/null 2>&1; then ok=1; break; fi
+            sleep 3
+          done
+          if [ "$ok" -ne 1 ]; then echo "[rotate] $HOSTNAME failed healthcheck"; continue; fi
+          if "$docker" exec "$GU" wget -qO- --timeout=10 http://ip-api.com/json >/dev/null 2>&1; then
+            echo "[rotate] $HOSTNAME verified working"
+            break
+          else
+            echo "[rotate] $HOSTNAME tunnel up but no egress, retrying"
+          fi
+        done
+        "$docker" restart "$SX" >/dev/null 2>&1 || true
+        echo "[rotate] done"
+      '';
+    };
+  };
+
+  # --- donsetch HTTP shim (exposes donsetch CLI to Trawl on the proxy net) ---
+  systemd.services.donsetch-shim = {
+    description = "donsetch search shim (HTTP) for Trawl";
+    after = [ "network.target" "docker.service" ];
+    requires = [ "docker.service" ];
+    wantedBy = [ "multi-user.target" ];
+    serviceConfig = {
+      Type = "oneshot";
+      RemainAfterExit = true;
+      ExecStartPre = "''${pkgs.bash}/bin/bash -c \"''${docker} build -t donsetch-shim:latest /etc/nixos/scripts/donsetch-shim || true\"";
+      ExecStart = pkgs.writeScript "donsetch-shim-start" ''
+        #!${pkgs.bash}/bin/bash
+        ${docker} rm -f donsetch-shim 2>/dev/null || true
+        exec ${docker} run -d --name donsetch-shim \
+          --restart unless-stopped \
+          --network proxy \
+          --dns 1.1.1.1 \
+          --dns 8.8.8.8 \
+          -v /opt/donsetch:/opt/donsetch:ro \
+          -v /nix/store:/nix/store:ro \
+          donsetch-shim:latest
+      '';
+      ExecStop = "${docker} stop donsetch-shim";
+    };
+  };
+
   # NordVPN service credentials
   sops.secrets."nordvpn-user" = {};
   sops.secrets."nordvpn-pass" = {};

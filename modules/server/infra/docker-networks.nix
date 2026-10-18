@@ -18,6 +18,7 @@ in
         #!${pkgs.bash}/bin/bash
         ${docker} network create proxy 2>/dev/null || true
         ${docker} network create firecrawl-backend 2>/dev/null || true
+        ${docker} network create lunar-tear 2>/dev/null || true
       '';
     };
   };

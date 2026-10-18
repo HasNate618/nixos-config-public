@@ -74,7 +74,7 @@ def main():
         rewrite(p, r"@define-color theme_base_color rgba\([0-9., ]+\);",
                 f"@define-color theme_base_color rgba({r}, {g}, {b}, 0.20)")
     # zen (bg var without alpha, transparency vars keep their 33 alpha suffix)
-    zen = "/home/nate/.config/zen/7khcdo47.Default (release)/chrome/zen-themes/matugen-transparency/chrome.css"
+    zen = "/home/nate/.config/zen/xxxxxxxx.Default (release)/chrome/zen-themes/matugen-transparency/chrome.css"
     rewrite(zen, r"--zen-main-browser-background:\s*#[0-9a-fA-F]+\s*!(important)",
             f"--zen-main-browser-background: #{bg} !\\1")
     rewrite(zen, r"(--(?:mod-sameerasw-)?zen_transparency_color):\s*#[0-9a-fA-F]+",

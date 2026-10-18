@@ -9,7 +9,8 @@ PanelWindow {
     required property var omni
 
     visible: host.omni.useBarEmbed
-    color: Qt.rgba(host.omni.paper.r, host.omni.paper.g, host.omni.paper.b, 0.80)
+    color: Qt.rgba(host.omni.paper.r, host.omni.paper.g, host.omni.paper.b,
+                   host.omni.theme.focusMode ? 1.0 : 0.80)
     implicitWidth: host.omni.useBarEmbed ? (host.omni.previewActive ? 1100 : 720) : 0
     implicitHeight: host.omni.useBarEmbed ? Math.round(Math.min(host.screen ? host.screen.height * 0.72 : 1080, 900)) : 0
     width: implicitWidth
@@ -62,7 +63,7 @@ PanelWindow {
             anchors.fill: parent
             visible: host.omni.visible_
             opacity: host.omni.visible_ ? 1 : 0
-            Behavior on opacity { NumberAnimation { duration: 50; easing.type: Easing.OutCubic } }
+            Behavior on opacity { NumberAnimation { duration: host.omni.theme.focusMode ? 0 : 50; easing.type: Easing.OutCubic } }
 
             Loader {
                 id: omniLoader

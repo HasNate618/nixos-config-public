@@ -11,6 +11,11 @@ in
 
   systemd.services.pdf-extractor = {
     description = "PDF Extractor — VLM + OCR (Docker)";
+    # Disabled 2026-09-28 — superseded by pdf-parse (Cohere Parse v5.0).
+    # Nothing routes here. Unit + source retained for rollback:
+    #   systemctl start pdf-extractor   (or pdf-ocr)
+    # Source vendored at compose/legacy/.
+    enable = false;
     after = [ "network.target" "docker.service" ];
     requires = [ "docker.service" ];
     wantedBy = [ "multi-user.target" ];

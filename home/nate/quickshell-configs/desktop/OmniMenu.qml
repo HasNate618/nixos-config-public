@@ -36,6 +36,13 @@ Item {
     // category-row array further down.
     property var navbar: null
 
+    // Mirror Navbar.qml: components rooted at the omni menu (the Quick*Body
+    // panes get `root: detailPanel.omni`) read focusMode through `root`, so it
+    // must be exposed here too — without it those panes could not gate their
+    // animations. Kept identical in form to Navbar's declaration so the two
+    // roots stay interchangeable.
+    readonly property bool focusMode: theme.focusMode
+
     readonly property color paper:   theme.paper
     readonly property color ink:     theme.ink
     readonly property color inkDeep: theme.inkDeep
@@ -75,20 +82,77 @@ Item {
     // Trailing underscore avoids shadowing Item.visible — read by the
     // PanelWindow's visibility binding below.
     property bool visible_: false
+    // NieR reveal state — same choreography as the notification OSD and
+    // the battery popup: slab slides in from the right while a curtain
+    // wipes away, and reverses on close. The panel stays alive while
+    // _nierShown so the exit is actually visible.
+    property bool _nierShown: false
+    property real _slideX: 0
+    // Enter is primed immediately but PLAYED only once the surface has
+    // really resized (see the panel-width watch below): starting the
+    // slide while the surface was still 1x1 finished it off-screen and
+    // the wipe read as the menu "growing" in place.
+    property bool _pendingReveal: false
+    // Panel width for the current mode — the reveal animations and the
+    // window sizing must agree on it even while the window is collapsed
+    // (card.width reads 0 then, which broke the open animation).
+    readonly property int panelTargetWidth: root.previewActive ? 1100 : 720
+    // Target screen for the menu. Deliberately NOT panel.screen: the
+    // window's screen is derived from the surface geometry, so reading
+    // it inside the size bindings is a cycle and they silently die at
+    // 1x1. This plain property is set in open() before visible_ flips.
+    property var menuScreen: null
     property bool _closeQueued: false
     property string query: ""
     property int selectedIndex: 0
     // When a keyboard nav event fires, suppress mouse-hover selection
     // updates briefly so arrow keys don't get hijacked by the cursor.
+    // Hover selection is blocked while the pointer has not physically moved
+    // since open. Qt delivers a synthetic enter/hover to the row under the
+    // cursor when the panel takes active focus (focusOmniCard ->
+    // forceActiveFocus), which would otherwise hijack selectedIndex to that
+    // row. We can't distinguish that synthetic event from real motion at
+    // the row, so instead we poll the compositor cursor and only unblock
+    // once its position actually changes from the value captured at open.
     property bool _mouseBlocked: false
-    Timer {
-        id: _mouseBlockTimer
-        interval: 300
-        onTriggered: root._mouseBlocked = false
-    }
+    property int _cursorRefX: -1
+    property int _cursorRefY: -1
     function blockMouse() {
         root._mouseBlocked = true;
-        _mouseBlockTimer.restart();
+        // Baseline the compositor cursor synchronously so the first poll
+        // after open sees no movement.
+        cursorProbe.running = true;
+    }
+    Process {
+        id: cursorProbe
+        command: ["hyprctl", "cursorpos"]
+        stdout: StdioCollector {
+            onStreamFinished: {
+                const m = this.text.trim().match(/([-0-9]+)[ ,]+([-0-9]+)/);
+                if (!m) return;
+                const x = parseInt(m[1]);
+                const y = parseInt(m[2]);
+                if (root._cursorRefX < 0) {
+                    root._cursorRefX = x;
+                    root._cursorRefY = y;
+                    cursorPoll.restart();
+                    return;
+                }
+                if (Math.abs(x - root._cursorRefX) > 2 || Math.abs(y - root._cursorRefY) > 2) {
+                    root._cursorRefX = x;
+                    root._cursorRefY = y;
+                    root._mouseBlocked = false;
+                    cursorPoll.stop();
+                }
+            }
+        }
+    }
+    Timer {
+        id: cursorPoll
+        interval: 80
+        repeat: true
+        running: false
+        onTriggered: cursorProbe.running = true;
     }
     // Active drill-down. "" means root (category navigators + everything
     // searchable); any other value pins the list to that category. Set by
@@ -317,13 +381,13 @@ Item {
         return null;
     }
 
-    function open() {
+    function open(cat) {
         root._closeQueued = false;
         root.useBarEmbed = false;
         root.activeScreenIndex = -1;
         root.query = "";
         root.selectedIndex = 0;
-        root.categoryFilter = "";
+        root.categoryFilter = cat || "";
         // Immediately show cached default list — no delay
         root._visibleCount = 50;
         root._visibleTarget = root._defaultList.length;
@@ -334,10 +398,32 @@ Item {
         var fm = Hyprland.focusedMonitor;
         if (fm) {
             for (var i = 0; i < s.length; i++) {
-                if (s[i].name === fm.name) { panel.screen = s[i]; break; }
+                if (s[i].name === fm.name) {
+                    // Screen goes through the panel's `screen` binding
+                    // (menuScreen); an imperative write here kills that
+                    // binding and the surface stops resizing.
+                    root.menuScreen = s[i];
+                    break;
+                }
             }
         }
+        root.blockMouse();
         root.visible_ = true;
+        // A category passed to open() must win over the default list:
+        // the onCategoryFilterChanged recompute ran while visible_ was
+        // still false (early return) and the list assignments above
+        // overwrote the result.
+        if (root.categoryFilter !== "") root._recomputeFiltered();
+        root._pendingReveal = true;
+        if (panelLoader.item) {
+            panelLoader.item.primeEnter();
+            if (panel.width >= (root.menuScreen ? root.menuScreen.width : 1920) - 2) {
+                root._pendingReveal = false;
+                panelLoader.item.playEnter();
+            } else {
+                _revealFallback.restart();
+            }
+        }
         Qt.callLater(root.schedulePaletteFocus);
     }
     signal paletteFocusHook()
@@ -351,15 +437,48 @@ Item {
             if (!root._closeQueued) return;
             root._closeQueued = false;
             root.visible_ = false;
+            root._pendingReveal = false;
+            _revealFallback.stop();
+            if (panelLoader.item) panelLoader.item.revealExit();
             root.useBarEmbed = false;
             root.activeScreenIndex = -1;
             root.query = "";
             root.selectedIndex = 0;
             root.categoryFilter = "";
-            // Restore keyboard focus to the previously focused window
-            focusRestore.running = false;
-            focusRestore.running = true;
+            cursorPoll.stop();
+            cursorProbe.running = false;
+            root._cursorRefX = -1;
+            root._cursorRefY = -1;
+            root._mouseBlocked = false;
+            // No focus gymnastics needed: the surface unmaps (like the
+            // card popups), and the compositor's native unmap-restore
+            // hands the keyboard back to the active window by itself.
         });
+    }
+
+    // panel.width reads the REAL surface size (it stays 1 until the
+    // 1x1 -> full-screen resize actually lands). Play the enter only
+    // then — otherwise the slide runs while the surface is still tiny
+    // and finishes off-screen, leaving only the wipe visible.
+    Connections {
+        target: panel
+        function onWidthChanged() {
+            if (root._pendingReveal && panel.width >= (root.menuScreen ? root.menuScreen.width : 1920) - 2) {
+                root._pendingReveal = false;
+                _revealFallback.stop();
+                if (panelLoader.item) panelLoader.item.playEnter();
+            }
+        }
+    }
+    Timer {
+        id: _revealFallback
+        interval: 250
+        onTriggered: {
+            if (root._pendingReveal) {
+                root._pendingReveal = false;
+                if (panelLoader.item) panelLoader.item.playEnter();
+            }
+        }
     }
 
     function toggle() { if (root.visible_) close(); else open(); }
@@ -459,9 +578,9 @@ Item {
     //                      ||, &&, redirects) work alongside plain
     //                      argv-style commands without a special case
     Process { id: runner; running: false }
-    Process { id: focusRestore; running: false
-        command: ["hyprctl", "dispatch", "focusurgentorlast"]
-    }
+
+
+
     function activate(item) {
         if (!item) return;
         if (item.isCategory) {
@@ -473,7 +592,12 @@ Item {
         // Normal item — launch and close
         if (item.exec) {
             bookmarks.record(item);
-            runner.command = ["sh", "-c", "cd ~ && " + item.exec];
+            // Detach like QuickTiles so a later launch on the same runner
+            // Process doesn't SIGTERM this one (setsid -f + uwsm scope).
+            runner.command = ["sh", "-c",
+                              "setsid -f uwsm-app -- bash -c "
+                              + JSON.stringify("cd ~ && " + item.exec)
+                              + " >/dev/null 2>&1"];
             runner.running = false;
             runner.running = true;
             root.close();
@@ -709,8 +833,17 @@ Item {
         // Lets Hyprland bind a shortcut straight into a category without
         // exposing the visual grid as a separate surface.
         function openCategory(cat: string): void {
-            root.open();
-            root.categoryFilter = cat;
+            // If the menu is already open, pivot in place (same as selecting
+            // the category row) so the surface widens/grows instead of closing
+            // and re-opening. Only a fresh open runs the full open() path.
+            if (root.visible_) {
+                root.categoryFilter = cat || "";
+                root.query = "";
+                root.selectedIndex = 0;
+                root._recomputeFiltered();
+            } else {
+                root.open(cat);
+            }
         }
     }
 
@@ -740,7 +873,7 @@ Item {
         function onScreensChanged() {
             if (!root.visible_) {
                 var t = root.pickStandaloneScreen();
-                if (t) panel.screen = t;
+                if (t) root.menuScreen = t;
             } else if (root.useBarEmbed) {
                 root.activeScreenIndex = root.laptopScreenIndex();
             }
@@ -770,19 +903,156 @@ Item {
     // ---------- Panel (1.0× external) + bar-embed (laptop 1.25×) ----------
     Component {
         id: omniSurface
-        Rectangle {
-            id: card
+        // Stage wrapper. A Loader resizes its item to the loader's own
+        // size, which silently overrode the card's width/height bindings
+        // and stretched it to the full surface (giant menu). The card
+        // lives inside this resizable stage so its geometry stays intact.
+        Item {
+            // Reveal hooks live on the stage (the loader's item) so the
+            // root's open()/close() reach them via panelLoader.item.
+            // The animations/curtain stay in the card; ids resolve
+            // across the whole component scope.
+            function primeEnter() {
+                if (root.useBarEmbed) return;
+                if (root.theme.focusMode) {
+                    root._nierShown = true;
+                    root._slideX = 0;
+                    curtain.width = 0;
+                    cardCol.opacity = 1;
+                    return;
+                }
+                nierExit.stop();
+                root._nierShown = true;
+                // Park the slab off the right edge with the curtain shut
+                // BEFORE the surface resize lands, so the first
+                // full-size frame is already empty and nothing flashes.
+                root._slideX = card.slideStart;
+                curtain.width = root.panelTargetWidth;
+                cardCol.opacity = 0;
+            }
+            function playEnter() {
+                if (root.useBarEmbed) return;
+                if (root.theme.focusMode) return;
+                nierEnter.start();
+            }
+            function revealExit() {
+                if (root.useBarEmbed || !root._nierShown) return;
+                if (root.theme.focusMode) {
+                    root._nierShown = false;
+                    root._slideX = 0;
+                    curtain.width = 0;
+                    return;
+                }
+                nierEnter.stop();
+                nierExit.start();
+            }
+
+            Rectangle {
+                id: card
             objectName: "omniCard"
             visible: true
-            anchors.fill: parent
-            color: Qt.rgba(root.paper.r * 0.5, root.paper.g * 0.5, root.paper.b * 0.5, 1.0)
+            color: root.theme.focusMode
+                   ? root.paper
+                   : Qt.rgba(root.paper.r * 0.5, root.paper.g * 0.5, root.paper.b * 0.5, 0.98)
             border.color: root.sep
             border.width: 1
             radius: root.cornerRadius
-            opacity: root.useBarEmbed ? 1 : (root.visible_ ? 1 : 0)
+
+            // Explicit geometry inside the stage. Resting spot matches
+            // the old window placement (centered on the output);
+            // bar-embed fills its host container as before.
+            width: root.useBarEmbed ? parent.width : (root.previewActive ? 1100 : 720)
+            height: root.useBarEmbed ? parent.height : Math.round(Math.min((panel.screen ? panel.screen.height : 1080) * 0.68, 800))
+            x: root.useBarEmbed ? 0 : ((root.menuScreen ? root.menuScreen.width : 1920) - width) / 2
+            y: root.useBarEmbed ? 0 : ((root.menuScreen ? root.menuScreen.height : 1080) - height) / 2
+            // Smooth widen for the clipboard preview pane instead of a
+            // hard window resize.
+            Behavior on width { NumberAnimation { duration: root.theme.focusMode ? 0 : 220; easing.type: Easing.OutCubic } }
+
+            // Slab slide, same as the notification OSD. Bar-embed is
+            // excluded — its host CardWindow animates the surface.
+            transform: Translate { x: root.useBarEmbed ? 0 : root._slideX }
+
+            // Slide origin: card's left edge just past the screen's right
+            // edge. Computed from the TARGET screen size, not the live
+            // panel geometry — the surface resize lags a frame or two,
+            // and reading panel.width/x during open made the card glide
+            // in from the top-left instead of the right edge.
+            readonly property real slideStart: ((root.menuScreen ? root.menuScreen.width : 1920) + root.panelTargetWidth) / 2 + 12
 
             // Swallow clicks so the underlying dismiss MouseArea doesn't fire.
             MouseArea { anchors.fill: parent; focus: false }
+
+            // NieR reveal curtain — covers the slab while it slides/wipe.
+            // Scanlines as plain rectangles (canvas buffers can go stale
+            // between opens and showed far stronger lines on re-open).
+            Rectangle {
+                id: curtain
+                anchors { top: parent.top; bottom: parent.bottom; left: parent.left }
+                width: 0
+                color: root.inkDeep
+                z: 99
+                visible: !root.useBarEmbed
+
+                Item {
+                    anchors.fill: parent
+                    enabled: false
+                    Repeater {
+                        model: Math.max(0, Math.ceil(parent.height / 4))
+                        Rectangle {
+                            x: 0; y: index * 4 + 1
+                            width: parent.width; height: 1
+                            color: Qt.rgba(0, 0, 0, 0.02)
+                        }
+                    }
+                }
+            }
+
+            SequentialAnimation {
+                id: nierEnter
+                // Battery-exact order: the slab slides in as a solid
+                // cream panel first, THEN the curtain wipes it away,
+                // THEN the content fades. The slab phase used to be
+                // invisible (swallowed by the surface resize), which
+                // left only the wipe visible — and the wipe sweeping
+                // across a settled 720px card reads as the menu
+                // "growing" in place.
+                NumberAnimation {
+                    target: root; property: "_slideX"
+                    from: card.slideStart; to: 0
+                    duration: root.theme.focusMode ? 0 : 320; easing.type: Easing.OutExpo
+                }
+                NumberAnimation {
+                    target: curtain; property: "width"
+                    from: root.panelTargetWidth; to: 0
+                    duration: root.theme.focusMode ? 0 : 240; easing.type: Easing.OutExpo
+                }
+                NumberAnimation {
+                    target: cardCol; property: "opacity"
+                    from: 0; to: 1
+                    duration: root.theme.focusMode ? 0 : 200; easing.type: Easing.OutQuad
+                }
+            }
+            SequentialAnimation {
+                id: nierExit
+                ParallelAnimation {
+                    NumberAnimation {
+                        target: curtain; property: "width"
+                        to: root.panelTargetWidth
+                        duration: root.theme.focusMode ? 0 : 180; easing.type: Easing.InOutQuad
+                    }
+                    NumberAnimation {
+                        target: root; property: "_slideX"
+                        to: card.slideStart
+                        duration: root.theme.focusMode ? 0 : 300; easing.type: Easing.InExpo
+                    }
+                }
+                onFinished: {
+                    root._nierShown = false;
+                    root._slideX = 0;
+                    curtain.width = 0;
+                }
+            }
 
             focus: root.visible_
             activeFocusOnTab: root.visible_
@@ -1012,7 +1282,7 @@ Item {
                 anchors.margins: 17
                 spacing: 12
 
-                Omni.SearchInput { omni: root }
+                Omni.SearchInput { id: searchInputInstance; omni: root }
 
                 Rectangle {
                     visible: !root.quickMode
@@ -1025,8 +1295,15 @@ Item {
                     id: listArea
                     visible: !root.quickMode
                     width: parent.width
+                    // Height budget must come from cardCol (already net of
+                    // the 17px margins), then subtract the real sibling
+                    // heights (searchInput 34 + sep 1 + footer 22) plus the
+                    // three 12px Column gaps. Using card.height here double-
+                    // counted the margins and overflowed the card, dropping
+                    // the footer command below the box.
                     height: visible
-                        ? Math.max(60, card.height - 34 - 12 * 2)
+                        ? Math.max(60, cardCol.height - footerRow.height
+                                       - searchInputInstance.height - 1 - 12 * 3)
                         : 0
                     clip: true
 
@@ -1058,7 +1335,7 @@ Item {
                             Rectangle {
                                 width: 40
                                 height: 40
-                                radius: 6
+                                radius: 0
                                 color: recMouse.containsMouse
                                     ? (root.rowHi || "#40ffffff")
                                     : "transparent"
@@ -1129,20 +1406,50 @@ Item {
                         }
                     }
                 }
+
+                Omni.Footer {
+                    id: footerRow
+                    omni: root
+                    visible: !root.quickMode
+                }
             }
+        }
         }
     }
 
     PanelWindow {
         id: panel
-        visible: true
+        // Persistent surface: full-screen while open/animating, 0x0 when
+        // idle. It must NEVER be destroyed/recreated — a fresh layer
+        // surface re-triggers wl scale events, and Qt's
+        // updatePixelRatioHelper recurses infinitely on those (see
+        // ~/.cache/quickshell/crashes: SIGSEGV shortly after opening).
+        // Resizing a long-lived surface avoids that crash class entirely.
+        visible: root.visible_ || root._nierShown
         color: "transparent"
-        width: root.visible_ ? (root.previewActive ? 1100 : 720) : 0
-        height: root.visible_ ? Math.round(Math.min(Quickshell.screens.length > 0 ? Quickshell.screens[0].height * 0.68 : 1080, 800)) : 0
+        // NO anchors: anchoring a PanelWindow makes quickshell size the
+        // surface its own way (it stayed 1x1 and the compositor stretched
+        // that buffer — the "grows from the top" flash). Unanchored, a
+        // screen-sized surface is centered, which lands exactly at (0,0).
+        // Declared binding (not an imperative write): quickshell applies the
+        // unanchored surface's implicit size reliably only when the window's
+        // screen is a bound property. With a default screen + imperative
+        // writes, opens that target the window's CURRENT screen left the
+        // surface stuck at 1x1 (observed: eDP target while DP-1 was attached).
+        screen: root.menuScreen ? root.menuScreen : (Quickshell.screens.length > 0 ? Quickshell.screens[0] : null)
+        implicitWidth: root.menuScreen ? root.menuScreen.width : 1920
+        implicitHeight: root.menuScreen ? root.menuScreen.height : 1080
         exclusionMode: ExclusionMode.Ignore
         WlrLayershell.layer: WlrLayer.Overlay
-        WlrLayershell.namespace: root.visible_ ? "omni-menu" : "omni-menu-hidden"
+        WlrLayershell.namespace: "omni-menu"
         WlrLayershell.keyboardFocus: root.visible_ && !root.useBarEmbed ? WlrKeyboardFocus.Exclusive : WlrKeyboardFocus.None
+
+        // Click outside the card dismisses (standard modal behaviour now
+        // that the surface covers the screen).
+        MouseArea {
+            anchors.fill: parent
+            onClicked: root.close()
+        }
 
         function focusOmniCard() {
             panelFocusRoot.forceActiveFocus();
@@ -1181,9 +1488,8 @@ Item {
 
         FocusScope {
             id: panelFocusRoot
-            visible: root.visible_
-            opacity: root.visible_ ? 1 : 0
-            Behavior on opacity { NumberAnimation { duration: 120; easing.type: Easing.OutCubic } }
+            visible: root.visible_ || root._nierShown
+            opacity: 1
             anchors.fill: parent
             focus: root.visible_ && !root.useBarEmbed
 

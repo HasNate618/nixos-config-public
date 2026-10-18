@@ -16,6 +16,7 @@ Item {
     property real haloO: 0
 
     function fire(x, y) {
+        if (bloomRoot.root.focusMode) return;
         bloomRoot.ox = x;
         bloomRoot.oy = y;
         bloomAnim.restart();

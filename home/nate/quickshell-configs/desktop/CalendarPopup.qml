@@ -7,6 +7,7 @@ CardWindow {
     theme: root
     revealed: root.calendarVisible
     cardWidth: 322
+    revealStyle: "nier"
     layerNamespace: "omarchy-calendar"
     title: calendarPopup.root.calendarMonthName
     subtitle: calendarPopup.root.calendarYear
@@ -54,14 +55,14 @@ CardWindow {
             color: calendarPopup.root.sep
         }
 
-        // Weekday row (Monday first). Sat/Sun tinted seal so the week's
+        // Weekday row (Sunday first). Sat/Sun tinted seal so the week's
         // shape is readable at a glance.
         Row {
             width: parent.width
             spacing: 0
 
             Repeater {
-                model: ["MO","TU","WE","TH","FR","SA","SU"]
+                model: ["SU","MO","TU","WE","TH","FR","SA"]
                 delegate: Item {
                     required property string modelData
                     required property int index
@@ -70,8 +71,8 @@ CardWindow {
                     Text {
                         anchors.centerIn: parent
                         text: modelData
-                        color: index >= 5 ? calendarPopup.root.seal : calendarPopup.root.inkDeep
-                        opacity: index >= 5 ? 0.85 : 0.7
+                        color: (index === 0 || index === 6) ? calendarPopup.root.seal : calendarPopup.root.inkDeep
+                        opacity: (index === 0 || index === 6) ? 0.85 : 0.7
                         font.family: calendarPopup.root.mono
                         font.pixelSize: 12
                         font.letterSpacing: 2
@@ -99,7 +100,7 @@ CardWindow {
                     height: 34
 
                     readonly property int  dayOfWeek: index % 7
-                    readonly property bool isWeekend: dayOfWeek >= 5
+                    readonly property bool isWeekend: dayOfWeek === 0 || dayOfWeek === 6
                     readonly property bool isCurrentMonth: modelData.day !== 0
                     readonly property bool isToday: modelData.today
                     readonly property bool isHoliday: modelData.holiday !== ""
@@ -113,7 +114,7 @@ CardWindow {
 
                     Rectangle {
                         anchors.centerIn: parent
-                        width: 29; height: 29; radius: 14
+                        width: 29; height: 29; radius: 0
                         color: calendarPopup.root.seal
                         visible: dayCell.isToday
                         antialiasing: true
@@ -121,16 +122,16 @@ CardWindow {
 
                     Rectangle {
                         anchors.centerIn: parent
-                        width: 29; height: 29; radius: 14
+                        width: 29; height: 29; radius: 0
                         color: Qt.rgba(calendarPopup.root.ink.r, calendarPopup.root.ink.g, calendarPopup.root.ink.b, 0.08)
                         visible: dayMouse.containsMouse && !dayCell.isToday && dayCell.isCurrentMonth
                         antialiasing: true
-                        Behavior on opacity { NumberAnimation { duration: 120 } }
+                        Behavior on opacity { NumberAnimation { duration: root.focusMode ? 0 : 120 } }
                     }
 
                     Rectangle {
                         anchors.centerIn: parent
-                        width: 29; height: 29; radius: 14
+                        width: 29; height: 29; radius: 0
                         color: "transparent"
                         border.color: calendarPopup.root.seal
                         border.width: 1

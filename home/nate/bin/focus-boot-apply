@@ -1,0 +1,30 @@
+#!/usr/bin/env bash
+# Re-assert focus mode after login/reboot.
+#
+# Focus mode persists as a guard file (~/.cache/focus-mode), so quickshell
+# restores its focus palette at startup and the bar looks right — but the
+# COMPOSITOR settings (no gaps/borders/shadow/blur/animations) live only in
+# the running Hyprland session. `hyprctl reload` on exit is what restores
+# them; nothing replays them at login. So a reboot into focus mode used to
+# come up with the declared gaps, borders and animations while everything
+# else claimed focus was on.
+#
+# Second half of the same bug: skwd-walld restores the last wallpaper at
+# startup — which in focus mode is the flat scheme-colour PNG — and runs
+# matugen against it, writing its Material FALLBACK palette over the app
+# themes (btop/cava/pi/...). Without a re-render the apps come up in that
+# fallback rather than the scheme. hypr-focus-toggle --reapply covers both.
+#
+# Runs from the hyprland.start hook, i.e. after the compositor is up and
+# after skwd-walld has been started by that same hook. The small delay lets
+# the daemon's restore+matugen land first so the re-render is the last
+# writer (the renderer would otherwise be overwritten by the boot matugen
+# run). Exits immediately when focus mode is off.
+set -uo pipefail
+
+[ -f "$HOME/.cache/focus-mode" ] || exit 0
+
+# Let skwd-walld finish its restore + matugen pass so our re-render is last.
+sleep 3
+
+hypr-focus-toggle --reapply

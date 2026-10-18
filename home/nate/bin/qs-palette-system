@@ -1,0 +1,6 @@
+#!/run/current-system/sw/bin/bash
+# Find the running desktop quickshell instance and open its System (power) palette category.
+# Delegate to qs-ipc: it resolves the LIVE instance and uses the
+# IPC-only `qs ipc --id` path, so this can never spawn a second
+# shell (the old form resolved a stale id and fell back to launching).
+exec qs-ipc call palette openCategory System

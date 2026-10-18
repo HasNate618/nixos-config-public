@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Docling</title>
+<link rel="stylesheet" href="/static/style.css?v=3">
+</head>
+<body tabindex="-1">
+<nav>
+  <h1>Docling</h1>
+  <span class="device-badge" id="device-badge">initializing...</span>
+</nav>
+<main>
+  <section class="upload-zone" id="upload-zone">
+    <div class="upload-content">
+      <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+        <polyline points="17 8 12 3 7 8"/>
+        <line x1="12" y1="3" x2="12" y2="15"/>
+      </svg>
+      <p>Drop documents here or click to browse</p>
+      <p class="hint">PDF, DOCX, PPTX, XLSX, images, HTML, MD</p>
+    </div>
+    <input type="file" id="file-input" multiple accept=".pdf,.docx,.pptx,.png,.jpg,.jpeg,.csv,.xlsx,.html,.md" hidden>
+    <button class="btn paste-btn" id="paste-btn">Paste from clipboard</button>
+  </section>
+  <section class="vlm-section" id="vlm-section">
+    <span class="vlm-label">Image model:</span>
+    <label class="vlm-box" data-provider="local">
+      <input type="radio" name="vlm" value="local" checked>
+      <span class="vlm-box-title">Local</span>
+      <span class="vlm-box-sub">Qwen3-VL (CPU)</span>
+    </label>
+    <label class="vlm-box" data-provider="cohere">
+      <input type="radio" name="vlm" value="cohere">
+      <span class="vlm-box-title">Cohere</span>
+      <span class="vlm-box-sub">via Bifrost</span>
+    </label>
+    <label class="vlm-box" data-provider="none">
+      <input type="radio" name="vlm" value="none">
+      <span class="vlm-box-title">None</span>
+      <span class="vlm-box-sub">No image descriptions</span>
+    </label>
+  </section>
+  <section class="jobs" id="jobs-section">
+    <div class="jobs-header">
+      <h2>Jobs</h2>
+      <button class="btn btn-sm" id="clear-done-btn" hidden>Clear completed</button>
+    </div>
+    <div class="jobs-empty" id="jobs-empty">No jobs yet. Upload a PDF to get started.</div>
+    <table class="jobs-table" id="jobs-table" hidden>
+      <thead><tr><th>File</th><th>Progress</th><th>Time</th><th>Status</th><th>Actions</th></tr></thead>
+      <tbody id="jobs-body"></tbody>
+    </table>
+  </section>
+</main>
+<div class="toast" id="toast"></div>
+<div class="modal-overlay" id="modal-overlay" hidden>
+  <div class="modal">
+    <div class="modal-header">
+      <span class="modal-title" id="modal-title">Preview</span>
+      <button class="btn btn-sm modal-close" id="modal-close">&times;</button>
+    </div>
+    <div class="modal-body" id="modal-body"></div>
+  </div>
+</div>
+<script src="/static/app.js?v=5"></script>
+</body>
+</html>

@@ -10,6 +10,15 @@ const WANTED = {
     color8:     "sumi",
     color1:     "indigo",
     accent:     "sealRaw",
+    // Per-widget accents. Focus mode supplies these as a1..a5 (see
+    // focus-apply-scheme); the normal matugen path does not, so they stay
+    // unset and the bar falls back to its seal-derived tints.
+    a1:         "a1",
+    a2:         "a2",
+    a3:         "a3",
+    a4:         "a4",
+    a5:         "a5",
+    alert:      "alert",
 };
 
 const LINE = /^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=\s*"([^"]+)"/;
@@ -47,4 +56,10 @@ function apply(theme, palette) {
     if (palette.sumi)    theme.sumi    = palette.sumi;
     if (palette.indigo)  theme.indigo  = palette.indigo;
     if (palette.sealRaw) theme.sealRaw = palette.sealRaw;
+    if (palette.a1) theme.a1 = palette.a1;
+    if (palette.a2) theme.a2 = palette.a2;
+    if (palette.a3) theme.a3 = palette.a3;
+    if (palette.a4) theme.a4 = palette.a4;
+    if (palette.a5) theme.a5 = palette.a5;
+    if (palette.alert) theme.alert = palette.alert;
 }

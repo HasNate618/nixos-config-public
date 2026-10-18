@@ -51,6 +51,10 @@ GROUP_INACTIVE="#3e2b19"
 GROUP_ACTIVE_RGBA="$(_hex_to_rgba "$GROUP_ACTIVE")"
 GROUP_INACTIVE_RGBA="rgba($(echo "$GROUP_INACTIVE" | sed "s/^#//")33)"
 
+# Focus mode disables borders entirely; bail so the pipeline cannot
+# restore them mid-session. Keep in sync with the hyprland.nix copy.
+[ -f "$HOME/.cache/focus-mode" ] && exit 0
+
 # Discover hyprland instance if not set
 if [ -z "$HYPRLAND_INSTANCE_SIGNATURE" ]; then
   export HYPRLAND_INSTANCE_SIGNATURE=$(ls -1t /run/user/1000/hypr 2>/dev/null | head -1)

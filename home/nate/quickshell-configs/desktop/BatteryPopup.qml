@@ -7,6 +7,7 @@ CardWindow {
     theme: root
     revealed: root.batteryVisible
     cardWidth: 420
+    revealStyle: "nier"
     layerNamespace: "omarchy-battery"
     footer: "←→ NUDGE  ·  1 2 3 PWR  ·  ESC"
 
@@ -99,7 +100,7 @@ CardWindow {
                         (batteryPopup.root.batChargeLimit - 40) / 60))
                     color: batteryPopup.root.seal
                     antialiasing: true
-                    Behavior on width { NumberAnimation { duration: 180; easing.type: Easing.OutCubic } }
+                    Behavior on width { NumberAnimation { duration: root.focusMode ? 0 : 180; easing.type: Easing.OutCubic } }
                 }
 
                 Rectangle {
@@ -109,7 +110,7 @@ CardWindow {
                     x: Math.max(0, Math.min(parent.width - width,
                         parent.width * Math.max(0, Math.min(1,
                             (batteryPopup.root.batChargeLimit - 40) / 60)) - width / 2))
-                    Behavior on x { NumberAnimation { duration: 180; easing.type: Easing.OutCubic } }
+                    Behavior on x { NumberAnimation { duration: root.focusMode ? 0 : 180; easing.type: Easing.OutCubic } }
                 }
 
                 MouseArea {

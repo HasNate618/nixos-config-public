@@ -13,6 +13,7 @@
     gamescope
     mangohud
     winetricks
+    dolphin-emu   # Wii/GameCube emulator
   ];
 
   # Ensure 32-bit OpenGL/Vulkan for Steam games with NVIDIA

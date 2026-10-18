@@ -1,4 +1,9 @@
-{ config, lib, pkgs, ... }: {
+{ config, lib, pkgs, ... }:
+
+let
+  barOpacity = config.theme.barOpacity;
+in
+{
   home.packages = with pkgs; [
     quickshell
     matugen
@@ -11,22 +16,9 @@
     qt6.qtmultimedia
     inotify-tools
     adwaita-icon-theme
-    (writeShellScriptBin "quickshell-theme-push" ''
-      COLORS_FILE="$HOME/.config/quickshell/colors.toml"
-      [ -f "$COLORS_FILE" ] || exit 0
-      PAYLOAD=$(${pkgs.python3}/bin/python3 -c "
-import json, re, sys
-colors = {}
-with open('$COLORS_FILE') as f:
-    for line in f:
-        m = re.match(r'\s*(\w+)\s*=\s*\"([^\"]+)\"', line)
-        if m: colors[m[1].lower()] = m[2]
-print(json.dumps({'name': 'matugen', 'colors': colors}))
-" 2>/dev/null)
-      if [ -n "$PAYLOAD" ]; then
-        ${pkgs.quickshell}/bin/qs -c desktop ipc call theme apply "$PAYLOAD" 2>/dev/null
-      fi
-    '')
+    # quickshell-theme-push is declared as a scriptlet in ./bin (bin.nix
+    # symlinks it into ~/.local/bin) — it also recolors corne SVGs and
+    # syncs the glow style, so it lives with the other bin scriptlets.
   ];
 
   # Cursor theme — Adwaita (black with white outline)
@@ -41,20 +33,25 @@ print(json.dumps({'name': 'matugen', 'colors': colors}))
   # Deploy quickshell QML configs from the repo.
   # colors.toml is generated at runtime by skwd-wall matugen integration.
   xdg.configFile."quickshell/desktop/shell.qml".force = true; xdg.configFile."quickshell/desktop/shell.qml".source = ./quickshell-configs/desktop/shell.qml;
-  xdg.configFile."quickshell/desktop/Theme.qml".force = true; xdg.configFile."quickshell/desktop/Theme.qml".source = ./quickshell-configs/desktop/Theme.qml;
+  xdg.configFile."quickshell/desktop/Theme.qml".force = true; xdg.configFile."quickshell/desktop/Theme.qml".text = builtins.replaceStrings [ "@BAR_OPACITY@" ] [ (builtins.toString barOpacity) ] (builtins.readFile ./quickshell-configs/desktop/Theme.qml);
   xdg.configFile."quickshell/desktop/Palette.js".force = true; xdg.configFile."quickshell/desktop/Palette.js".source = ./quickshell-configs/desktop/Palette.js;
   xdg.configFile."quickshell/desktop/Data.js".force = true; xdg.configFile."quickshell/desktop/Data.js".source = ./quickshell-configs/desktop/Data.js;
   xdg.configFile."quickshell/desktop/Navbar.qml".force = true; xdg.configFile."quickshell/desktop/Navbar.qml".source = ./quickshell-configs/desktop/Navbar.qml;
   xdg.configFile."quickshell/desktop/NavbarApps.qml".force = true; xdg.configFile."quickshell/desktop/NavbarApps.qml".source = ./quickshell-configs/desktop/NavbarApps.qml;
   xdg.configFile."quickshell/desktop/OmniMenu.qml".force = true; xdg.configFile."quickshell/desktop/OmniMenu.qml".source = ./quickshell-configs/desktop/OmniMenu.qml;
   xdg.configFile."quickshell/desktop/LaptopOmniHost.qml".force = true; xdg.configFile."quickshell/desktop/LaptopOmniHost.qml".source = ./quickshell-configs/desktop/LaptopOmniHost.qml;
+  xdg.configFile."quickshell/desktop/FocusSchemes.qml".force = true; xdg.configFile."quickshell/desktop/FocusSchemes.qml".source = ./quickshell-configs/desktop/FocusSchemes.qml;
   xdg.configFile."quickshell/desktop/OSD.qml".force = true; xdg.configFile."quickshell/desktop/OSD.qml".source = ./quickshell-configs/desktop/OSD.qml;
   xdg.configFile."quickshell/desktop/NotificationOSD.qml".force = true; xdg.configFile."quickshell/desktop/NotificationOSD.qml".source = ./quickshell-configs/desktop/NotificationOSD.qml;
+  # Notification sound — played by NotificationOSD.qml (resolved relative to
+  # the config dir). Repo is the single source; no ~/Downloads dependency.
+  xdg.configFile."quickshell/desktop/sounds/nier_automata_mail.mp3".force = true; xdg.configFile."quickshell/desktop/sounds/nier_automata_mail.mp3".source = ./quickshell-configs/desktop/sounds/nier_automata_mail.mp3;
   xdg.configFile."quickshell/desktop/BrightnessOSD.qml".force = true; xdg.configFile."quickshell/desktop/BrightnessOSD.qml".source = ./quickshell-configs/desktop/BrightnessOSD.qml;
   xdg.configFile."quickshell/desktop/Bar.qml".force = true; xdg.configFile."quickshell/desktop/Bar.qml".source = ./quickshell-configs/desktop/Bar.qml;
   xdg.configFile."quickshell/desktop/Workspace.qml".force = true; xdg.configFile."quickshell/desktop/Workspace.qml".source = ./quickshell-configs/desktop/Workspace.qml;
   xdg.configFile."quickshell/desktop/Bloom.qml".force = true; xdg.configFile."quickshell/desktop/Bloom.qml".source = ./quickshell-configs/desktop/Bloom.qml;
   xdg.configFile."quickshell/desktop/Module.qml".force = true; xdg.configFile."quickshell/desktop/Module.qml".source = ./quickshell-configs/desktop/Module.qml;
+  xdg.configFile."quickshell/desktop/StatFrame.qml".force = true; xdg.configFile."quickshell/desktop/StatFrame.qml".source = ./quickshell-configs/desktop/StatFrame.qml;
   xdg.configFile."quickshell/desktop/Separator.qml".force = true; xdg.configFile."quickshell/desktop/Separator.qml".source = ./quickshell-configs/desktop/Separator.qml;
   xdg.configFile."quickshell/desktop/Bookmarks.qml".force = true; xdg.configFile."quickshell/desktop/Bookmarks.qml".source = ./quickshell-configs/desktop/Bookmarks.qml;
   xdg.configFile."quickshell/desktop/BatteryPopup.qml".force = true; xdg.configFile."quickshell/desktop/BatteryPopup.qml".source = ./quickshell-configs/desktop/BatteryPopup.qml;
@@ -90,14 +87,27 @@ print(json.dumps({'name': 'matugen', 'colors': colors}))
   systemd.user.services.quickshell-desktop = {
     Unit.Description = "Quickshell desktop shell";
     Service = {
+      # Resolve the live Hyprland socket signature at runtime (it changes every
+      # boot) so hyprctl from inside quickshell reaches the current instance.
+      # Build-time $(ls) would bake in a stale signature from the previous boot.
       Environment = [
         "WAYLAND_DISPLAY=wayland-1"
         "QML_IMPORT_PATH=${pkgs.qt6.qt5compat}/lib/qt-6/qml"
+        "QS_DISABLE_CRASH_HANDLER=1"
+        "QT_SCALE_FACTOR_ROUNDING_POLICY=Round"
       ];
       ExecStart = "${pkgs.quickshell}/bin/qs -n -c desktop";
+      # The shell has been seen to SEGFAULT in
+      # QtWaylandClient::EventThread::readAndDispatchEvents (47 reports in
+      # ~/.cache/quickshell/crashes). Restart=on-failure keeps the bar alive
+      # across those crashes; the delay keeps a crash-loop from overlapping
+      # with an explicit `systemctl restart` (which used to leave two shells
+      # and therefore two bars on screen at once).
       Restart = "on-failure";
-      RestartSec = 2;
+      RestartSec = 5;
     };
-    Install.WantedBy = [ "graphical-session.target" ];
+    # Not auto-started: launched by hyprland.start (hyprland.nix) to inherit
+    # the live HYPRLAND_INSTANCE_SIGNATURE.
+    Install.WantedBy = [ ];
   };
 }

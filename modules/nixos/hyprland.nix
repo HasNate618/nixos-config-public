@@ -29,6 +29,11 @@
   };
 
   # Environment variables for Hyprland
+  # XDG_DATA_DIRS must be a LIST merged with lib.mkBefore: nixpkgs's
+  # display-manager module also defines it (SDDM is enabled) and a plain
+  # string here would collide. Without /run/opengl-driver/share the Vulkan
+  # loader can't see the NVIDIA ICD, so Zen (Gecko) and Chromium fall back
+  # to bundled SwiftShader and report WebGPU unsupported.
   environment.sessionVariables = {
     NIXOS_OZONE_WL = "1";
     WLR_NO_HARDWARE_CURSORS = "1";
@@ -36,15 +41,24 @@
     XDG_SESSION_DESKTOP = "Hyprland";
     XDG_COLOR_SCHEME = "dark";
     GTK_THEME = "Adwaita-dark";
+    XDG_DATA_DIRS = lib.mkBefore [ "/run/opengl-driver/share" ];
   };
 
   # Fonts
   fonts.packages = with pkgs; [
     jetbrains-mono
     nerd-fonts.jetbrains-mono
+    # skwd-wall v2 picker UI: Roboto + Material Design Icons + Nerd symbols
+    nerd-fonts.symbols-only
+    roboto
+    roboto-mono
+    material-design-icons
     noto-fonts-color-emoji
     noto-fonts
     terminus_font
+    (pkgs.runCommand "nier-angelic" { } ''
+      install -Dm644 ${./nier-angelic-regular.ttf} $out/share/fonts/truetype/NieR-Angelic-Regular.ttf
+    '')
   ];
 
   environment.systemPackages = with pkgs; [
@@ -145,6 +159,15 @@
   };
 
   security.polkit.enable = true;
+
+  # PAM for hyprlock — dedicated screen-locker config (no faillock/xauth,
+  # which crash hyprlock's threaded PAM module on Wayland)
+  security.pam.services.hyprlock = {
+    text = ''
+      auth sufficient pam_unix.so likeauth try_first_pass
+      auth required pam_deny.so
+    '';
+  };
 
   # Allow suspend without password — needed by hypridle's suspend listener
   # since the display is already locked when suspend triggers

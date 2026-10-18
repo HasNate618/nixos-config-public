@@ -1,7 +1,8 @@
 import QtQuick
 
-// Footer line: surfaces the exec command of the current selection so
-// the user can verify what's about to fire before pressing Enter.
+// Footer line: exec of the current selection. Keeps the bottom of
+// the card alive and doubles as a "what will Enter do" check before
+// firing. Truncates only when the command exceeds the box width.
 Item {
     id: footer
     required property var omni
@@ -12,7 +13,7 @@ Item {
     Text {
         anchors.left: parent.left
         anchors.verticalCenter: parent.verticalCenter
-        width: parent.width - 4
+        width: parent.width
         elide: Text.ElideRight
         text: {
             const it = footer.omni.filteredItems[footer.omni.selectedIndex];
@@ -20,6 +21,7 @@ Item {
             if (it.isCategory)  return "→ open " + it.target.toLowerCase();
             if (it.isProcess)   return "↵ kill " + (it.pid || "");
             if (it.isTheme)     return "↵ omarchy-theme-set " + (it.themeName || "");
+            if (!it.exec)       return "";
             return "$ " + it.exec;
         }
         color: footer.omni.inkDeep
@@ -28,4 +30,5 @@ Item {
         font.letterSpacing: 1
         opacity: 0.65
     }
+
 }

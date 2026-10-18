@@ -23,9 +23,13 @@
       "crowdsec-api-key" = {};
       "open-terminal-api-key" = {};
       "crawl4ai-api-token" = {};
+      "exa-api-key" = {};
+      "exa-api-key-secondary" = {};
       "nextcloud-admin-pass" = {};
       "searxng-secret-key" = {};
       "cohere-api-key" = {};
+      "lunar-admin-token" = {};
+      "lunar-auth-secret" = {};
     };
   };
 }

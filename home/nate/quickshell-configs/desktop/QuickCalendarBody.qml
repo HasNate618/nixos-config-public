@@ -124,7 +124,7 @@ Item {
         Row {
             width: parent.width
             Repeater {
-                model: ["MO","TU","WE","TH","FR","SA","SU"]
+                model: ["SU","MO","TU","WE","TH","FR","SA"]
                 delegate: Item {
                     required property string modelData
                     required property int index
@@ -133,8 +133,8 @@ Item {
                     Text {
                         anchors.centerIn: parent
                         text: modelData
-                        color: index >= 5 ? body.root.seal : body.root.inkDeep
-                        opacity: index >= 5 ? 0.85 : 0.7
+                        color: (index === 0 || index === 6) ? body.root.seal : body.root.inkDeep
+                        opacity: (index === 0 || index === 6) ? 0.85 : 0.7
                         font.family: body.root.mono
                         font.pixelSize: 11
                         font.letterSpacing: 2
@@ -158,7 +158,7 @@ Item {
                     height: 30
 
                     readonly property int  dayOfWeek: index % 7
-                    readonly property bool isWeekend: dayOfWeek >= 5
+                    readonly property bool isWeekend: dayOfWeek === 0 || dayOfWeek === 6
                     readonly property bool isCurrentMonth: modelData.day !== 0
                     readonly property bool isToday: modelData.today
                     readonly property bool isHoliday: modelData.holiday !== ""
@@ -174,21 +174,21 @@ Item {
 
                     Rectangle {
                         anchors.centerIn: parent
-                        width: 26; height: 26; radius: 13
+                        width: 26; height: 26; radius: 0
                         color: body.root.seal
                         visible: dayCell.isToday
                         antialiasing: true
                     }
                     Rectangle {
                         anchors.centerIn: parent
-                        width: 26; height: 26; radius: 13
+                        width: 26; height: 26; radius: 0
                         color: Qt.rgba(body.root.ink.r, body.root.ink.g, body.root.ink.b, 0.08)
                         visible: dayMouse.containsMouse && !dayCell.isToday && dayCell.isCurrentMonth
                         antialiasing: true
                     }
                     Rectangle {
                         anchors.centerIn: parent
-                        width: 26; height: 26; radius: 13
+                        width: 26; height: 26; radius: 0
                         color: "transparent"
                         border.color: body.root.seal
                         border.width: 1

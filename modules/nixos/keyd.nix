@@ -6,18 +6,18 @@
         ids = [ "1d50:615e" ];
         settings.main = {
           capslock = "overload(control, esc)";
-          mouse2 = "layer(meta)";
+          mouse2 = "leftmeta";
         };
         settings.control = {
           capslock = "capslock";
         };
       };
       default = {
-        ids = [ "*" ];
+        ids = [ "*" "m:3554:fc03:f6faaf7b" ];
         settings.main = {
           capslock = "overload(control, esc)";
-          mouse2 = "layer(meta)";
-          rightalt = "layer(arrows)";
+          mouse2 = "leftmeta";
+          rightalt = "overload(arrows, f13)";
         };
         settings.control = {
           capslock = "capslock";
@@ -27,10 +27,10 @@
           j = "down";
           k = "up";
           l = "right";
-          y = "home";
-          u = "end";
-          i = "pgup";
-          o = "pgdn";
+          u = "home";
+          i = "pagedown";
+          o = "pageup";
+          p = "end";
         };
       };
     };

@@ -1,12 +1,18 @@
 { ... }: {
-  # Qt6 application style/theme config
+  # Qt6 platform theme (qt6ct). Widgets are painted by Kvantum
+  # (QT_STYLE_OVERRIDE=kvantum, set by home-manager); the palette comes from
+  # skwd-wall/matugen (colors/matugen.conf) — matching the GTK css colors.
   xdg.configFile."qt6ct/qt6ct.conf" = {
     force = true;
     text = ''
       [Appearance]
-      color_scheme_path=/home/nate/.config/qt6ct/colors/darker.ini
+      color_scheme_path=/home/nate/.config/qt6ct/colors/matugen.conf
       custom_palette=false
-      style=kvantum-dark
+      style=kvantum
+
+      [Fonts]
+      general="JetBrains Mono,11,-1,5,50,0,0,0,0,0"
+      fixed="JetBrains Mono,11,-1,5,50,0,0,0,0,0"
 
       [Interface]
       dialog_buttons_have_icons=1
@@ -20,33 +26,6 @@
 
       [Palette]
       standard_dialogs=xdgdesktopportal
-    '';
-  };
-
-  # Darker color scheme (fallback for non-matugen apps)
-  xdg.configFile."qt6ct/colors/darker.ini" = {
-    force = true;
-    text = ''
-      [ColorScheme]
-      name=Darker
-      author=Nate
-      description=A dark color scheme matching MonoThemeDark
-
-      [Colors:Button]
-      background=@Variant(\0\0\0\x84\0\0\0\x14\0\0\0\x30\0\0\0\x30)
-      background_normal=@Variant(\0\0\0\x84\0\0\0\x14\0\0\0\x30\0\0\0\x30)
-
-      [Colors:View]
-      background=@Variant(\0\0\0\x84\0\0\0\x18\0\0\0\x18\0\0\0\x12\0\0\0\x10)
-      background_normal=@Variant(\0\0\0\x84\0\0\0\x18\0\0\0\x18\0\0\0\x12\0\0\0\x10)
-
-      [Colors:Window]
-      background=@Variant(\0\0\0\x84\0\0\0\x18\0\0\0\x18\0\0\0\x12\0\0\0\x10)
-      background_normal=@Variant(\0\0\0\x84\0\0\0\x18\0\0\0\x18\0\0\0\x12\0\0\0\x10)
-
-      [Colors:Selection]
-      background=@Variant(\0\0\0\x84\0\0\0\x14\0\0\0\x30\0\0\0\x30)
-      background_normal=@Variant(\0\0\0\x84\0\0\0\x14\0\0\0\x30\0\0\0\x30)
     '';
   };
 }

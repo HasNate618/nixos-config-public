@@ -16,8 +16,8 @@
       forgejo = {
         hostname = "home.tailXXXXXXXX.ts.net";
         port = 2222;
-        user = "git";
-        identityFile = "~/.ssh/gitea";
+        user = "forgejo";
+        identityFile = "~/.ssh/id_ed25519";
       };
       home = {
         hostname = "home.tailXXXXXXXX.ts.net";

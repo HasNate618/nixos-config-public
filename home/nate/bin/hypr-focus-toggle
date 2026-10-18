@@ -1,0 +1,233 @@
+#!/usr/bin/env bash
+# Focus mode toggle — strips the desktop to a flat, static, borderless
+# surface driven by a terminal-style colour scheme:
+#   * solid wallpaper from the scheme background (sources in
+#     focus-schemes/, default kanagawa-dragon; switch live with
+#     `focus-scheme <name>`)
+#   * no borders/gaps/shadow/blur/dim, no compositor animations
+#   * quickshell palette pushed from the scheme (theme focusPalette) with
+#     all QML animations gated off and the bar/popups forced opaque
+#   * hyprlock colours + static background from the scheme
+#   * foot terminals: scheme palette at alpha 1.0 (opaque) — live via
+#     OSC 11 rgba; colors.ini is rewritten so terminals opened later match
+#
+# Design notes (why it is built this way):
+#   * Compositor restore uses `hyprctl reload` rather than replaying every
+#     value. The generated hyprland.lua is the single source of truth, so
+#     reload returns gaps/borders/blur/shadows/animations to their declared
+#     state exactly — replaying literals drifts the moment the config changes.
+#   * Palette restore is deferred until the skwd pipeline has regenerated
+#     colors.toml for the restored wallpaper: the focus-era file holds
+#     matugen's fallback for the flat-colour wallpaper (a purple Material
+#     scheme), and pushing it would flash the wrong palette on exit.
+#   * hyprlock.conf is Home-Manager-owned (a store symlink). NEVER write
+#     over it: doing so makes the next rebuild fail with "would be
+#     clobbered". It sources hyprlock-focus-override.conf LAST; focus mode
+#     only ever writes (and clears) that plain runtime file.
+#   * The focus guard file doubles as the quickshell palette payload, so a
+#     shell restarting mid-focus can restore its colours at startup.
+#   * No quickshell restart here — the QML reads theme.focusMode live, so
+#     the IPC flip is enough. Restarting per toggle would flash the bar.
+#   * Wallpaper is not driven through skwd-helm history. We snapshot the
+#     daemon's per-output paths and restore those on exit, so the user's
+#     playlist/history stays intact.
+set -uo pipefail
+
+STATE_DIR="$HOME/.cache/focus-mode.d"
+STATE_FILE="$HOME/.cache/focus-mode"
+WALL_STATE="$STATE_DIR/wallpapers.json"
+LOCK_BG="$HOME/.config/hypr/lock-bg"
+HYPRLOCK_OVERRIDE="$HOME/.config/hypr/hyprlock-focus-override.conf"
+ACTIVE_SCHEME_FILE="$HOME/.config/focus-mode/active"
+COLORS_TOML="$HOME/.config/quickshell/colors.toml"
+
+# ── Hyprland socket ──
+_sock=$(ss -xlp 2>/dev/null | grep -o "/run/user/${UID}/hypr/[^ ]*\.socket\.sock" | head -1)
+_sig=""
+[ -n "$_sock" ] && _sig="$(basename "$(dirname "$_sock")")"
+[ -z "$_sig" ] && _sig=$(ls -1t "/run/user/${UID}/hypr" 2>/dev/null | head -1)
+[ -n "$_sig" ] && export HYPRLAND_INSTANCE_SIGNATURE="$_sig"
+
+# Live outputs only (disabled/mirrored outputs must be skipped).
+_connected_outputs() {
+    hyprctl monitors -j 2>/dev/null \
+        | jq -r '.[] | select(.disabled == false) | .name' 2>/dev/null
+}
+
+# Compositor: no borders, no gaps, no shadow, no blur (brightness=1 keeps
+# the surface opaque rather than translucent), no dim, and the master
+# animation switch off.
+#
+# A function, not inline in focus_on, because these values live ONLY in the
+# running session — `hyprctl reload` (focus_off) is what restores them, and
+# nothing replays them at login. focus-boot-apply calls the --reapply path
+# below, which lands here, so a reboot into a persisted focus mode gets the
+# flat look instead of the declared gaps/borders/animations.
+focus_compositor_apply() {
+    hyprctl eval 'hl.config({
+        ["general.border_size"]=0,
+        ["general.gaps_out"]=0,
+        ["general.gaps_in"]=0,
+        ["general.col.active_border"]="rgba(00000000)",
+        ["general.col.inactive_border"]="rgba(00000000)",
+        ["group.col.border_active"]="rgba(00000000)",
+        ["group.col.border_inactive"]="rgba(00000000)",
+        ["decoration.rounding"]=0,
+        ["decoration.shadow.enabled"]=false,
+        ["decoration.blur.enabled"]=false,
+        ["decoration.blur.brightness"]=1.0,
+        ["decoration.dim_special"]=0.0,
+        ["animations.enabled"]=false
+    })' >/dev/null 2>&1 || true
+}
+
+# ── daemon matugen flag ──
+# Focus mode authors app themes itself (focus-theme-render), so the daemon's
+# matugen pass must be OFF while focus is on: otherwise applying the flat focus
+# wallpaper makes matugen write its fallback palette over the app themes, which
+# the renderer then corrects a few seconds later — the "intermediate theme"
+# flash. It must be ON again outside focus, because matugen is the normal
+# desktop theming path for real wallpapers.
+#
+# The daemon watches its config dir and reloads on change, so no restart is
+# needed. Writes are atomic (temp + mv) so a reload cannot catch a partial file.
+SKWD_CONFIG="$HOME/.config/skwd-wall-v2/config.json"
+
+set_matugen() { # on|off
+    [ -f "$SKWD_CONFIG" ] || return 0
+    python3 - "$1" <<'PY' 2>/dev/null || true
+import json, os, sys, tempfile
+want = sys.argv[1] == "on"
+p = os.path.expanduser("~/.config/skwd-wall-v2/config.json")
+try:
+    with open(p) as f:
+        d = json.load(f)
+except Exception:
+    sys.exit(0)
+f = d.setdefault("features", {})
+if f.get("matugen") is want:
+    sys.exit(0)                      # already correct; do not touch the file
+f["matugen"] = want
+dirn = os.path.dirname(p)
+fd, tmp = tempfile.mkstemp(dir=dirn, prefix=".config.", suffix=".json")
+with os.fdopen(fd, "w") as fh:
+    json.dump(d, fh, indent=2)
+os.replace(tmp, p)
+PY
+}
+
+focus_on() {
+    mkdir -p "$STATE_DIR"
+
+    # Claim focus mode FIRST: the guard keys the border-theme skip and the
+    # foot hook, and focus-apply-scheme rewrites it as the palette payload.
+    # Without this, applying the scheme wallpaper below would fire the
+    # matugen pipeline that restores borders mid-switch.
+    : > "$STATE_FILE"
+
+    # Snapshot the current per-output wallpaper so restore is exact.
+    skwd-helm outputs --json 2>/dev/null > "$WALL_STATE" || true
+
+    # Stop the daemon theming from the flat focus wallpaper BEFORE we apply it.
+    set_matugen off
+
+    focus_compositor_apply
+
+    # Scheme: wallpaper, hyprlock colours, quickshell palette, foot push.
+    focus-apply-scheme >/dev/null || true
+
+    notify-send -u low "Focus mode on — $(cat "$ACTIVE_SCHEME_FILE" 2>/dev/null || echo kanagawa-dragon)" 2>/dev/null || true
+}
+
+focus_off() {
+    # Release the focus guard FIRST: the wallpaper restore below fires the
+    # matugen pipeline, and the border theme must be allowed through again.
+    # NOTE: only the guard file goes now — WALL_STATE is still needed below,
+    # so the state dir is cleared at the very end.
+    rm -f "$STATE_FILE"
+
+    # Restore the daemon's matugen pass now that focus mode has released the
+    # guard, and BEFORE the wallpaper restore below — otherwise the restore
+    # runs with theming disabled and the apps keep the focus colours.
+    set_matugen on
+
+    # Compositor back to the declared config — one authoritative reload.
+    hyprctl reload >/dev/null 2>&1 || true
+
+    # Timestamp for the deferred palette push below; must predate the
+    # restore apply so the push waits for the regenerated colors.toml.
+    local toml_before
+    toml_before=$(stat -c %Y "$COLORS_TOML" 2>/dev/null || echo 0)
+
+    # Restore each output's pre-focus wallpaper from the snapshot.
+    if [ -f "$WALL_STATE" ]; then
+        local name path
+        while IFS=$'\t' read -r name path; do
+            [ -n "$name" ] && [ -n "$path" ] && [ -f "$path" ] || continue
+            skwd-helm apply "$path" -o "$name" >/dev/null 2>&1 || true
+        done < <(jq -r '.outputs[]? | select(.connected == true) | "\(.name)\t\(.current // .path)"' "$WALL_STATE" 2>/dev/null)
+    fi
+
+    # Quickshell: drop focus mode now; the palette push is deferred until
+    # the pipeline has regenerated colors.toml for the restored wallpaper
+    # (see header note). The same wait also re-pushes foot colours, in case
+    # the pipeline's own hook is skipped for an unchanged template.
+    qs-ipc call theme focus false >/dev/null 2>&1 || true
+    (
+        i=0
+        while [ "$i" -lt 24 ]; do
+            sleep 0.25
+            now=$(stat -c %Y "$COLORS_TOML" 2>/dev/null || echo 0)
+            [ "$now" != "$toml_before" ] && break
+            i=$((i+1))
+        done
+        sleep 0.5
+        quickshell-theme-push >/dev/null 2>&1 || true
+        foot-reload-colors.sh >/dev/null 2>&1 || true
+    ) &
+
+    # hyprlock: drop the overrides (truncate, don't delete — a missing
+    # source makes hyprlock log a globbing error on every lock).
+    [ -e "$HYPRLOCK_OVERRIDE" ] && : > "$HYPRLOCK_OVERRIDE" 2>/dev/null || true
+
+    # hyprlock background back to the restored wallpaper.
+    local wall
+    wall=$(jq -r '.path // empty' "$HOME/.cache/skwd-wall-v2/last-wallpaper.json" 2>/dev/null || true)
+    if [ -n "$wall" ] && [ -f "$wall" ]; then
+        ln -sf "$wall" "$LOCK_BG" 2>/dev/null || true
+    fi
+
+    # Borders were suppressed while the guard was up; re-apply the matugen
+    # border theme now that the guard is down so colours do not depend on
+    # pipeline timing.
+    hyprland-border-theme >/dev/null 2>&1 || true
+
+    # Now that the snapshot has been consumed, drop the state dir.
+    rm -rf "$STATE_DIR"
+
+    notify-send -u low "Focus mode off" 2>/dev/null || true
+}
+
+case "${1:-}" in
+    --reapply)
+        # Login/reboot path (see focus-boot-apply). The guard file survived
+        # the reboot, so focus mode is still "on" — but every compositor
+        # value above was lost with the old session, and the daemon's boot
+        # restore ran matugen against the flat focus wallpaper, which wrote
+        # its fallback palette over the app themes. Re-assert the compositor
+        # settings and re-run the whole scheme apply (wallpaper, palette,
+        # foot, lock, and the deferred app re-render). The guard is left
+        # untouched: focus mode stays on.
+        [ -f "$STATE_FILE" ] || exit 0
+        set_matugen off
+        focus_compositor_apply
+        focus-apply-scheme >/dev/null 2>&1 || true
+        ;;
+    *)
+        if [ -f "$STATE_FILE" ]; then
+            focus_off
+        else
+            focus_on
+        fi
+        ;;
+esac

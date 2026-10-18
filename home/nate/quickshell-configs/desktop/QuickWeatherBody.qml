@@ -74,7 +74,7 @@ Item {
                 font.family: body.root.mono
                 font.pixelSize: 10
                 font.letterSpacing: 2
-                Behavior on color { ColorAnimation { duration: 140 } }
+                Behavior on color { ColorAnimation { duration: root.focusMode ? 0 : 140 } }
                 MouseArea {
                     id: placeMouse
                     anchors.fill: parent

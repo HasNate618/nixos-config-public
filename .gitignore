@@ -6,6 +6,7 @@ result*
 .env
 *.env
 secrets/
+hermes-profiles/
 *.pem
 *.key
 *.crt

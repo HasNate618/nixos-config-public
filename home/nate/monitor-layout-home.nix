@@ -7,7 +7,6 @@
     Service = {
       Type = "oneshot";
       ExecStart = "/etc/profiles/per-user/nate/bin/hypr-monitor-auto-layout";
-      Environment = "WAYLAND_DISPLAY=wayland-0";
     };
     Install.WantedBy = [ "default.target" ];
   };
@@ -20,7 +19,6 @@
     Service = {
       Type = "simple";
       ExecStart = "/etc/profiles/per-user/nate/bin/hypr-auto-rotate";
-      Environment = "WAYLAND_DISPLAY=wayland-0";
       Restart = "always";
       RestartSec = 2;
     };

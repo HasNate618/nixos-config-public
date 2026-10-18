@@ -71,23 +71,32 @@ Item {
                     required property int index
                     width: root.cellSize
                     height: root.cellSize
-                    radius: 6
+                    radius: 0
                     color: index === root.selectedIndex
                         ? (root.omni ? root.omni.rowSel : "#60ffffff")
                         : (cellMouse.containsMouse
                             ? (root.omni ? root.omni.rowHi : "#40ffffff")
                             : "transparent")
 
-                    // Selected border ring
-                    Rectangle {
+                    // Selection frame: corner brackets on all four corners
+                    // (8px arms / 2px strokes), animated on selection change.
+                    Item {
+                        id: selFrame
                         anchors.fill: parent
-                        anchors.margins: 1
-                        radius: 5
-                        visible: index === root.selectedIndex
-                        color: "transparent"
-                        border.width: 2
-                        border.color: root.omni ? root.omni.seal : "#88ffffff"
                         z: 2
+                        opacity: index === root.selectedIndex ? 1 : 0
+                        property real inset: index === root.selectedIndex ? 0 : 3
+                        Behavior on opacity { NumberAnimation { duration: root.omni.theme.focusMode ? 0 : 110; easing.type: Easing.OutCubic } }
+                        Behavior on inset { NumberAnimation { duration: root.omni.theme.focusMode ? 0 : 150; easing.type: Easing.OutCubic } }
+                        property color lineColor: root.omni ? root.omni.seal : "#88ffffff"
+                        Rectangle { anchors { left: parent.left; top: parent.top; leftMargin: selFrame.inset; topMargin: selFrame.inset } width: 2; height: 8; color: selFrame.lineColor }
+                        Rectangle { anchors { left: parent.left; top: parent.top; leftMargin: selFrame.inset; topMargin: selFrame.inset } width: 8; height: 2; color: selFrame.lineColor }
+                        Rectangle { anchors { right: parent.right; top: parent.top; rightMargin: selFrame.inset; topMargin: selFrame.inset } width: 2; height: 8; color: selFrame.lineColor }
+                        Rectangle { anchors { right: parent.right; top: parent.top; rightMargin: selFrame.inset; topMargin: selFrame.inset } width: 8; height: 2; color: selFrame.lineColor }
+                        Rectangle { anchors { left: parent.left; bottom: parent.bottom; leftMargin: selFrame.inset; bottomMargin: selFrame.inset } width: 2; height: 8; color: selFrame.lineColor }
+                        Rectangle { anchors { left: parent.left; bottom: parent.bottom; leftMargin: selFrame.inset; bottomMargin: selFrame.inset } width: 8; height: 2; color: selFrame.lineColor }
+                        Rectangle { anchors { right: parent.right; bottom: parent.bottom; rightMargin: selFrame.inset; bottomMargin: selFrame.inset } width: 2; height: 8; color: selFrame.lineColor }
+                        Rectangle { anchors { right: parent.right; bottom: parent.bottom; rightMargin: selFrame.inset; bottomMargin: selFrame.inset } width: 8; height: 2; color: selFrame.lineColor }
                     }
 
                     Text {
@@ -104,7 +113,7 @@ Item {
                         anchors.horizontalCenter: parent.horizontalCenter
                         width: tipText.implicitWidth + 8
                         height: tipText.implicitHeight + 4
-                        radius: 4
+                        radius: 0
                         color: "#dd333333"
                         z: 10
                         Text {
@@ -125,7 +134,7 @@ Item {
                             if (cell.modelData && cell.modelData.e)
                                 root.picked(cell.modelData.e, cell.modelData.n || "");
                         }
-                        onEntered: root.selectedIndex = cell.index
+                        onEntered: { if (!root.omni || !root.omni._mouseBlocked) root.selectedIndex = cell.index; }
                     }
                 }
             }

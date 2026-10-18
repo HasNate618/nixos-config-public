@@ -9,6 +9,7 @@ ShellRoot {
         id: nav
         theme: theme
         onPaletteToggleRequested: omni.toggle()
+        onPowerMenuRequested: { omni.categoryFilter = "System"; omni.open(); }
     }
     OmniMenu { id: omni; theme: theme }
     OSD { root: nav }

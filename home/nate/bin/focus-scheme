@@ -1,0 +1,87 @@
+#!/usr/bin/env bash
+# focus-scheme — list, preview, or switch the focus-mode colour scheme.
+#
+# Scheme files: ~/.config/focus-mode/schemes/<name>.conf (see the nixos
+# repo's home/nate/focus-schemes/ for the format; extra files can be
+# dropped into the deployed directory live).
+set -uo pipefail
+
+SCHEMES="$HOME/.config/focus-mode/schemes"
+ACTIVE_FILE="$HOME/.config/focus-mode/active"
+STATE_FILE="$HOME/.cache/focus-mode"
+
+active=$(cat "$ACTIVE_FILE" 2>/dev/null || true)
+[ -n "$active" ] || active=kanagawa-dragon
+
+scheme_get() { # file key
+    sed -n "s/^$2=//p" "$1" | head -1 | tr -d '[:space:]#'
+}
+
+case "${1:-}" in
+    "" | -l | --list)
+        printf 'Focus-mode colour schemes:\n'
+        found=0
+        for f in "$SCHEMES"/*.conf; do
+            [ -f "$f" ] || continue
+            found=1
+            name=$(basename "$f" .conf)
+            if [ "$name" = "$active" ]; then
+                printf '  * %s\n' "$name"
+            else
+                printf '    %s\n' "$name"
+            fi
+        done
+        [ "$found" = 1 ] || printf '  (no schemes in %s)\n' "$SCHEMES"
+        [ -f "$STATE_FILE" ] || printf '  (focus mode is off — applies on next toggle)\n'
+        ;;
+    -j | --json)
+        # Machine-readable list for the quickshell scheme picker. Swatch
+        # is the full 16-colour terminal palette in scheme-file order:
+        # regular0-7 then bright0-7 (rendered as a 2x8 chip grid).
+        printf '['
+        first=1
+        for f in "$SCHEMES"/*.conf; do
+            [ -f "$f" ] || continue
+            slug=$(basename "$f" .conf)
+            if [ "$slug" = "$active" ]; then act=true; else act=false; fi
+            [ "$first" = 1 ] && first=0 || printf ','
+            printf '{"slug":"%s","active":%s,"swatch":["#%s","#%s","#%s","#%s","#%s","#%s","#%s","#%s","#%s","#%s","#%s","#%s","#%s","#%s","#%s","#%s"]}' \
+                "$slug" "$act" \
+                "$(scheme_get "$f" regular0)" "$(scheme_get "$f" regular1)" \
+                "$(scheme_get "$f" regular2)" "$(scheme_get "$f" regular3)" \
+                "$(scheme_get "$f" regular4)" "$(scheme_get "$f" regular5)" \
+                "$(scheme_get "$f" regular6)" "$(scheme_get "$f" regular7)" \
+                "$(scheme_get "$f" bright0)"  "$(scheme_get "$f" bright1)" \
+                "$(scheme_get "$f" bright2)"  "$(scheme_get "$f" bright3)" \
+                "$(scheme_get "$f" bright4)"  "$(scheme_get "$f" bright5)" \
+                "$(scheme_get "$f" bright6)"  "$(scheme_get "$f" bright7)"
+        done
+        printf ']\n'
+        ;;
+    -h | --help)
+        cat <<'USAGE'
+focus-scheme — list or switch the focus-mode colour scheme.
+
+  focus-scheme            list schemes (* marks the active one)
+  focus-scheme <name>     make <name> active; applies live if focus mode
+                          is on (wallpaper, bar, popups, foot, lock screen,
+                          and every matugen integration output)
+  focus-scheme --json     machine-readable list (used by the picker)
+USAGE
+        ;;
+    *)
+        name="$1"
+        if [ ! -f "$SCHEMES/$name.conf" ]; then
+            echo "focus-scheme: no such scheme '$name' (run 'focus-scheme' to list)" >&2
+            exit 1
+        fi
+        mkdir -p "$(dirname "$ACTIVE_FILE")"
+        printf '%s\n' "$name" > "$ACTIVE_FILE"
+        if [ -f "$STATE_FILE" ]; then
+            focus-apply-scheme "$name"
+            notify-send -u low "Focus scheme — $name" || true
+        else
+            echo "focus-scheme: active scheme set to '$name' (applies on next focus session)"
+        fi
+        ;;
+esac

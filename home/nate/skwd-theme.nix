@@ -1,60 +1,117 @@
-{ config, lib, pkgs, ... }:
+{ config, lib, ... }:
 
-{
-  # skwd-wall runtime config — defines matugen integrations
-  xdg.configFile."skwd/data/config.json" = { force = true; text = builtins.toJSON { programs = { bar = false; }; }; };
-  xdg.configFile."skwd-wall/config.json" = { force = true; source = ./skwd-theme-configs/config.json; };
+let
+  opacity = config.theme.opacity;
+  opStr = builtins.toString opacity;
+  zenHex = config.theme.zenAlphaHex;
+  # Kvantum: percent to reduce window/menu opacity by (1.0 -> 0%, 0.65 -> 35%)
+  reducePct = builtins.toString (builtins.floor ((1.0 - opacity) * 100.0 + 0.5));
+  withOpacity = fn:
+    let raw = builtins.readFile (./skwd-theme-configs/templates + "/${fn}");
+    in builtins.replaceStrings [ "@OPACITY@" "@OPACITY_HEX@" "@REDUCE_PCT@" ] [ opStr zenHex reducePct ] raw;
 
-  # skwd-wall matugen templates (custom overrides)
-  xdg.configFile."skwd-wall/data/matugen/templates/hyprland-border-color".source = ./skwd-theme-configs/templates/hyprland-border-color;
-  xdg.configFile."skwd-wall/data/matugen/templates/hyprland-group-border-color".source = ./skwd-theme-configs/templates/hyprland-group-border-color;
-  xdg.configFile."skwd-wall/data/matugen/templates/foot-colors.conf" = { force = true; source = ./skwd-theme-configs/templates/foot-colors.conf; };
-  xdg.configFile."skwd-wall/data/matugen/templates/gtk-css.css" = { force = true; source = ./skwd-theme-configs/templates/gtk-css.css; };
-
-  # skwd-wall scripts (post-processing and reload helpers)
-  xdg.configFile."skwd-wall/scripts/patch-monotheme.sh" = { force = true; executable = true; source = ./skwd-theme-configs/scripts/patch-monotheme.sh; };
-  xdg.configFile."skwd-wall/scripts/bg-sat-boost.py" = { force = true; executable = true; source = ./skwd-theme-configs/scripts/bg-sat-boost.py; };
-  xdg.configFile."skwd-wall/scripts/reload-kde.sh" = { force = true; executable = true; source = ./skwd-theme-configs/scripts/reload-kde.sh; };
-  xdg.configFile."skwd-wall/scripts/reload-niri.sh" = { force = true; executable = true; source = ./skwd-theme-configs/scripts/reload-niri.sh; };
-  xdg.configFile."skwd-wall/scripts/reload-spicetify.sh" = { force = true; executable = true; source = ./skwd-theme-configs/scripts/reload-spicetify.sh; };
-  xdg.configFile."skwd-wall/scripts/reload-zen.sh" = { force = true; executable = true; source = ./skwd-theme-configs/scripts/reload-zen.sh; };
-  xdg.configFile."skwd-wall/scripts/zen-red-scale.py" = { force = true; executable = true; source = ./skwd-theme-configs/scripts/zen-red-scale.py; };
-
-  # matugen wrapper for skwd-wall — converts WebP to PNG, bypasses interactive TUI
-  home.packages = with pkgs; [
-    (writeShellScriptBin "skwd-matugen-wrapper" ''
-      set -e
-      CONFIG=""; IMAGE=""
-      while [ "$#" -gt 0 ]; do
-        case "$1" in
-          -c|--config) CONFIG="$2"; shift 2 ;;
-          image) IMAGE="$2"; shift 2 ;;
-          *) shift ;;
-        esac
-      done
-      [ -n "$IMAGE" ] || exit 1
-      case "$IMAGE" in
-        *.webp|*.WEBP)
-          PNG_IMAGE="/tmp/skwd-matugen-$$.png"
-          ${pkgs.imagemagick}/bin/magick "$IMAGE" "$PNG_IMAGE"
-          MATUGEN_IMAGE="$PNG_IMAGE"
-          ;;
-        *) MATUGEN_IMAGE="$IMAGE" ;;
-      esac
-      ARGS=""
-      [ -n "$CONFIG" ] && ARGS="$ARGS -c \"$CONFIG\""
-      # Achromatic images get a deeper dark palette (scheme-content's green
-      # fallback accent would otherwise be light tone-80 green).
-      EXTRA_LIGHTNESS=""
-      SAT=$(${pkgs.imagemagick}/bin/magick "$MATUGEN_IMAGE" -resize 25% -colorspace HSL -channel G -separate -format '%[fx:maxima]' info: 2>/dev/null)
-      if [ "$SAT" = "0" ]; then
-        EXTRA_LIGHTNESS="--lightness-dark=-0.5"
-      fi
-      # --fallback-color '#9575CD': achromatic (monochrome) wallpapers have no
-      # extractable color -> matugen uses a default BLUE seed. Override to green
-      # (user pref). Wallpapers WITH color are unaffected.
-      eval "${pkgs.matugen}/bin/matugen $ARGS image \"$MATUGEN_IMAGE\" --source-color-index 0 --fallback-color '#9575CD' $EXTRA_LIGHTNESS"
-      [ -n "$PNG_IMAGE" ] && rm -f "$PNG_IMAGE"
-    '')
+  # Templates consumed verbatim by matugen (they carry the {{colors.*}} refs).
+  plainTemplates = [
+    "hyprland-border-color"
+    "hyprland-group-border-color"
+    "quickshell-colors.json"
+    "quickshell-colors.toml"
+    "kitty.conf"
+    "ghostty.conf"
+    "kde-colors.colors"
+    "vesktop.css"
+    "yazi-theme.toml"
+    "hyprlock-theme.conf"
+    "qt6ct-colors.conf"
+    "chromium.css"
+    "btop.theme"
+    "cava-config"
+    # Focus-only variants, picked by focus-theme-render in preference to the
+    # shared template above. The two palettes have different structure —
+    # matugen derives every role from ONE seed hue, focus mode maps distinct
+    # terminal hues — so a template that shows four different colours is right
+    # under focus and wrong under matugen. These keep the two apart.
+    "btop.theme-focus"
+    "cava-config-focus"
+    "lazygit-config.yml"
+    "neovim.lua"
+    "pi-theme.json"
   ];
+
+  # Templates parameterised by the single NixOS opacity value.
+  # hyprlock-theme.conf is deliberately NOT here: its input box is a fixed
+  # 0.92 alpha on the darkest surface token, so it must not track theme.opacity.
+  opacityTemplates = [
+    "foot-colors.conf"
+    "gtk-css.css"
+    "gtk3-css.css"
+    "gtk4-css.css"
+    "swayosd.css"
+    "zen-transparency.css"
+    "kvantum-kvconfig"
+    "kvantum-svg"
+    "kvantum-alt-kvconfig"
+    "kvantum-alt-svg"
+  ];
+
+  templateFile = name: {
+    name = "skwd-wall-v2/matugen/templates/${name}";
+    value = {
+      force = true;
+      source = ./skwd-theme-configs/templates + "/${name}";
+    };
+  };
+  templateText = name: {
+    name = "skwd-wall-v2/matugen/templates/${name}";
+    value = {
+      force = true;
+      text = withOpacity name;
+    };
+  };
+  scriptFile = name: {
+    name = "skwd-wall/scripts/${name}";
+    value = {
+      force = true;
+      executable = true;
+      source = ./skwd-theme-configs/scripts + "/${name}";
+    };
+  };
+in
+{
+  # skwd-wall v2 config is APP-OWNED so picker/settings changes persist: the
+  # seed below is copied in on first activation (and replaces the old store
+  # symlink once), then never overwritten again — rebuilds leave live config
+  # alone. To bake UI-tuned values back into the repo, diff
+  # ~/.config/skwd-wall-v2/config.json against skwd-theme-configs/config.json.
+  home.activation.skwdWallConfig = lib.hm.dag.entryAfter [ "writeBoundary" ] ''
+    CONFIG="$HOME/.config/skwd-wall-v2/config.json"
+    if [ ! -e "$CONFIG" ] || [ -L "$CONFIG" ]; then
+      run rm -f "$CONFIG"
+      run mkdir -p "$(dirname "$CONFIG")"
+      run cp ${./skwd-theme-configs/config.json} "$CONFIG"
+      run chmod u+w "$CONFIG"
+    fi
+  '';
+
+  # matugen templates + pipeline scripts. Templates are resolved as bare names
+  # from this dir (default for paths.templates); the package ships its own
+  # fallbacks under share/skwd-wall-v2/data/matugen/templates.
+  xdg.configFile =
+    builtins.listToAttrs (map templateFile plainTemplates)
+    // builtins.listToAttrs (map templateText opacityTemplates)
+    // {
+      # integration refers to "wl-kbptr-config"; source file keeps the suffix
+      "skwd-wall-v2/matugen/templates/wl-kbptr-config" = {
+        force = true;
+        source = ./skwd-theme-configs/templates/wl-kbptr-config.conf;
+      };
+    }
+    // builtins.listToAttrs (map scriptFile [
+      "bg-sat-boost.py"
+      "patch-monotheme.sh"
+      "reload-kde.sh"
+      "reload-niri.sh"
+      "reload-zen.sh"
+      "zen-red-scale.py"
+    ]);
 }

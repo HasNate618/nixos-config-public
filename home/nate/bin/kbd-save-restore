@@ -1,0 +1,39 @@
+#!/usr/bin/env bash
+# Usage: kbd-save-restore save | kbd-save-restore restore
+# Single shared save file for ALL lock/sleep paths (hypridle idle lock,
+# logind sleep, power-button lock). First save wins within a cycle so
+# lock->sleep chains keep the original value; restore is idempotent
+# (safe to call from multiple on-resume/trap paths — only the first
+# one with a pending save does anything).
+FILE="/tmp/kbd-brightness"
+DEV='*::kbd_backlight'
+
+case "${1:-}" in
+  save)
+    # Record current level — including 0 (explicit off) — but never
+    # overwrite a pending save from an earlier step in the same cycle.
+    if [ ! -s "$FILE" ]; then
+      v=$(brightnessctl -d "$DEV" get 2>/dev/null)
+      [ -n "$v" ] && echo "$v" > "$FILE"
+    fi
+    brightnessctl -d "$DEV" set 0 2>/dev/null
+    ;;
+  restore)
+    if [ -f "$FILE" ]; then
+      val=$(cat "$FILE" 2>/dev/null)
+      if [ -n "$val" ]; then
+        # EC wedge on s2idle resume — write cycle with longer delays
+        brightnessctl -d "$DEV" set 0 2>/dev/null
+        sleep 0.5
+        brightnessctl -d "$DEV" set "$val" 2>/dev/null
+        sleep 0.3
+        # Re-assert the matugen colour: the LED was off while locked, and the
+        # aura effect is not guaranteed to survive an off/on cycle.
+        if [ "$val" != "0" ] && [ -x "$HOME/.local/bin/kb-backlight-matugen" ]; then
+          "$HOME/.local/bin/kb-backlight-matugen"
+        fi
+      fi
+      rm -f "$FILE"
+    fi
+    ;;
+esac

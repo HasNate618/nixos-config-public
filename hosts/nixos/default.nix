@@ -1,25 +1,35 @@
-{ config, lib, pkgs, skwd-wall, nix-cachyos-kernel, ... }: {
+{ config, lib, pkgs, nix-cachyos-kernel, grok-bot, pi-flake, ... }: {
   imports = [
     ./hardware-configuration.nix
+    ./thermal-log.nix
   ];
-  programs.skwd-wall.enable = true;
+  # skwd-wall v2 (1.0.0-beta.17): skwd-walld daemon, skwd-paper-v2 renderers,
+  # skwd-lens semantic search. Replaces the v1 skwd-daemon stack — v2 has no
+  # bundled matugen, so the LD_PRELOAD matugen-hook shim is gone.
+  #
+  # NixOS builds the unit PATH from `path` (+ coreutils/findutils/grep/sed/
+  # systemd), so the daemon does NOT see the user profile: hand it the same
+  # dirs the v1 daemon wrapper exported, so the matugen wrapper and the
+  # post-processing scripts (asusctl/brightnessctl/python3/…) resolve, plus
+  # the tools the daemon itself shells out to by bare name.
+  services.skwd-deck.enable = true;
+  systemd.user.services.skwd-walld.path = [
+    # NB: systemd adds /bin (+/sbin) to every `path` entry, so pass parents.
+    "/home/nate/.local"
+    "/run/current-system/sw"
+    "/etc/profiles/per-user/nate"
+    (pkgs.writeScriptBin "matugen" (builtins.readFile ../../home/nate/bin/matugen))
+    pkgs.bash
+    pkgs.ffmpeg
+    pkgs.hyprland
+    pkgs.jq
+    pkgs.procps
+    pkgs.util-linux
+  ];
   boot.kernelPackages = pkgs.cachyosKernels.linuxPackages-cachyos-latest;
   # acpi_call: probe ASUS WMI DSTS devids (dGPU base/set TGP 0x00090019/20)
   boot.extraModulePackages = [ config.boot.kernelPackages.acpi_call ];
-  nixpkgs.overlays = [ nix-cachyos-kernel.overlays.default (import ../../modules/nixos/quickshell-overlay.nix) (import ../../modules/nixos/opencode-overlay.nix) (import ../../modules/nixos/hyprland-055-overlay.nix) ];
-  # and QSG_RENDERER=software, delegates to skwd-wall's wrapped binary
-  # (which has correct SKWD_* env vars baked in at build time).
-  systemd.user.services.skwd-daemon = {
-    serviceConfig.ExecStart = [
-      ""
-      "${pkgs.writeShellScriptBin "skwd-daemon-wrapper" ''
-        export QSG_RENDERER=software
-        export PATH="$HOME/.local/bin:/run/current-system/sw/bin:$PATH"
-        export LD_PRELOAD="${config.services.matugen-hook.package}/lib/matugen-hook.so"
-        exec ${skwd-wall}/bin/skwd-daemon "$@"
-      ''}/bin/skwd-daemon-wrapper"
-    ];
-  };
+  nixpkgs.overlays = [ nix-cachyos-kernel.overlays.default (import ../../modules/nixos/quickshell-overlay.nix) (import ../../modules/nixos/opencode-overlay.nix) (import ../../modules/nixos/wl-kbptr-overlay.nix) (import ../../modules/nixos/hyprland-055-overlay.nix) (import ../../modules/nixos/kvantum-overlay.nix) (import ../../modules/nixos/hyprlock-overlay.nix) pi-flake.overlays.default ];
   hardware.enableRedistributableFirmware = true;
   boot.kernelModules = [ "iwlwifi" "nvidia" "acpi_call" ];
   # Read-only WMI probe: query dGPU TGP base/max via ATKD.DSTS
@@ -40,6 +50,18 @@
   };
   boot.kernelParams = [ "quiet" "systemd.show_status=true" "i915.enable_guc=2" "i915.enable_dc=2" "i915.enable_fbc=0" ];
   services.xserver.videoDrivers = [ "modesetting" "nvidia" ];
+  # nvidia-persistenced fails (and marks the system degraded) whenever it is
+  # started while the dGPU is powered off — e.g. a rebuild on battery, or
+  # after an RTD3 removal. Gate it on the GPU actually being initialised:
+  # the /proc glob alone can still pass for a moment mid-RTD3 (the proc
+  # entry outlives the device nodes), so ExecCondition additionally gates on
+  # /dev/nvidia0 — the node the daemon actually needs. An ExecCondition skip
+  # (exit 1) is NOT a failure, so rebuilds with the GPU asleep exit cleanly
+  # and the system stays non-degraded.
+  systemd.services.nvidia-persistenced.serviceConfig = {
+    ConditionPathExistsGlob = [ "/proc/driver/nvidia/gpus/*/information" ];
+    ExecCondition = [ "${pkgs.coreutils}/bin/test -e /dev/nvidia0" ];
+  };
   hardware.nvidia = {
     package = config.boot.kernelPackages.nvidiaPackages.new_feature;
     modesetting.enable = true;
@@ -58,7 +80,8 @@
   services.asusd.enable = true;
   # asusd does NOT apply charge_control_end_threshold from asusd.ron at
   # startup — it reloads whatever the EC currently holds (100 after a
-  # power cycle, since the EC reset + BIOS ERP change). Force it at boot.
+  # power cycle, since the EC reset + BIOS ERP change). Re-apply the
+  # user-persisted limit at boot (fallback 70 when never set).
   systemd.services.asusd-charge-limit = {
     description = "Apply ASUS battery charge limit (EC does not persist it)";
     wantedBy = [ "multi-user.target" ];
@@ -68,19 +91,33 @@
       RemainAfterExit = true;
     };
     script = ''
-      # Use asusctl (asusd's own client) so asusd's in-memory state matches;
-      # a raw sysfs write is seen as external and asusd reverts it.
-      ${pkgs.asusctl}/bin/asusctl battery limit 70 >/dev/null 2>&1 || true
+      LIMIT=$(cat /var/lib/asus-charge-limit/limit 2>/dev/null || echo 70)
+      case "$LIMIT" in ""|*[!0-9]*) LIMIT=70 ;; esac
+      # asusd's dbus may not be ready yet — retry instead of silently
+      # skipping (the old `|| true` left the EC limit wrong with no trace).
+      for i in $(seq 1 30); do
+        if ${pkgs.asusctl}/bin/asusctl battery limit "$LIMIT" >/dev/null 2>&1; then
+          mkdir -p /var/lib/asus-charge-limit
+          echo "$LIMIT" > /var/lib/asus-charge-limit/limit
+          exit 0
+        fi
+        sleep 1
+      done
+      echo "asusd-charge-limit: failed to set $LIMIT after 30s" >&2
+      exit 1
     '';
   };
   # Declarative asusd.ron — prevents asusd from regenerating its own
   # defaults (PptPl1Spl=100, PptPl2Sppt=135, NvDynamicBoost=20) which
   # Valid armoury ranges: ppt_pl1_spl max 110, ppt_pl2_sppt max 135, nv_dynamic_boost max 20.
+  # Auto-switch OFF: ac-power-apply owns profile transitions (asusd missed plug events, stuck Quiet on AC).
   services.asusd.asusdConfig.text = ''
     (
-        # Source of truth for the charge limit. asusd re-applies this at
-        # every boot, so runtime changes (asusctl -c / GUI) reset to this
-        # value on reboot. Edit HERE to change the limit permanently.
+        # FALLBACK default for the charge limit (asusd does NOT re-apply
+        # this at boot — it reloads the EC value). The effective limit is
+        # /var/lib/asus-charge-limit/limit, written by asus-charge-limit-set
+        # whenever the widget changes it; asusd-charge-limit.service applies
+        # it at boot. Edit the 70s HERE to change the never-set fallback.
         charge_control_end_threshold: 70,
         base_charge_control_end_threshold: 70,
         disable_nvidia_powerd_on_battery: true,
@@ -88,9 +125,9 @@
         bat_command: "",
         platform_profile_linked_epp: true,
         platform_profile_on_battery: Quiet,
-        change_platform_profile_on_battery: true,
+        change_platform_profile_on_battery: false,
         platform_profile_on_ac: Performance,
-        change_platform_profile_on_ac: true,
+        change_platform_profile_on_ac: false,
         profile_quiet_epp: Power,
         profile_balanced_epp: BalancePower,
         profile_custom_epp: Performance,
@@ -148,9 +185,9 @@
         ${pkgs.asusctl}/bin/asusctl fan-curve --mod-profile performance --fan gpu --data '40c:0,55c:0,62c:40,66c:100,74c:150,82c:200,90c:240,98c:255'
         ${pkgs.asusctl}/bin/asusctl fan-curve --mod-profile performance --fan mid --data '40c:0,55c:0,62c:40,68c:90,76c:140,84c:195,92c:240,98c:255'
         ${pkgs.asusctl}/bin/asusctl fan-curve --mod-profile performance --enable-fan-curves true
-        ${pkgs.asusctl}/bin/asusctl fan-curve --mod-profile balanced --fan cpu --data '40c:0,55c:0,62c:20,68c:45,75c:75,82c:115,90c:180,98c:255'
-        ${pkgs.asusctl}/bin/asusctl fan-curve --mod-profile balanced --fan gpu --data '40c:0,52c:0,60c:20,66c:45,73c:75,80c:115,88c:180,98c:255'
-        ${pkgs.asusctl}/bin/asusctl fan-curve --mod-profile balanced --fan mid --data '40c:0,55c:0,62c:18,68c:42,75c:72,82c:112,90c:178,98c:255'
+        ${pkgs.asusctl}/bin/asusctl fan-curve --mod-profile balanced --fan cpu --data '40c:0,55c:0,62c:40,68c:90,75c:140,82c:190,90c:235,98c:255'
+        ${pkgs.asusctl}/bin/asusctl fan-curve --mod-profile balanced --fan gpu --data '40c:0,52c:0,60c:40,66c:90,73c:140,80c:190,88c:235,98c:255'
+        ${pkgs.asusctl}/bin/asusctl fan-curve --mod-profile balanced --fan mid --data '40c:0,55c:0,62c:38,68c:85,75c:135,82c:185,90c:230,98c:255'
         ${pkgs.asusctl}/bin/asusctl fan-curve --mod-profile balanced --enable-fan-curves true
         ${pkgs.asusctl}/bin/asusctl fan-curve --mod-profile quiet --fan cpu --data '55c:0,62c:0,68c:15,74c:40,80c:70,86c:110,93c:180,100c:255'
         ${pkgs.asusctl}/bin/asusctl fan-curve --mod-profile quiet --fan gpu --data '55c:0,62c:0,68c:15,74c:40,80c:70,86c:110,93c:180,100c:255'
@@ -173,9 +210,9 @@
       Type = "oneshot";
       ExecStart = "${pkgs.writeShellScriptBin "rapl-reset" ''
         # MMIO domain = what the hardware actually enforces
-        # AC: 65W (unlocks 4.8-5.1GHz turbo); Battery: 20W (cool + long runtime)
+        # AC: 50W (thermal-safe with degraded paste); Battery: 20W (cool + long runtime)
         AC=$(cat /sys/class/power_supply/AC0/online 2>/dev/null || echo 0)
-        MMIO=$([ "$AC" = "1" ] && echo 65000000 || echo 20000000)
+        MMIO=$([ "$AC" = "1" ] && echo 50000000 || echo 20000000)
         echo $MMIO > /sys/class/powercap/intel-rapl-mmio:0/constraint_0_power_limit_uw 2>/dev/null || true
         echo $MMIO > /sys/class/powercap/intel-rapl-mmio:0/constraint_1_power_limit_uw 2>/dev/null || true
         echo $MMIO > /sys/class/powercap/intel-rapl:0/constraint_0_power_limit_uw 2>/dev/null || true
@@ -198,8 +235,8 @@
       CPU_MIN_PERF_ON_BAT = 0;
       CPU_BOOST_ON_AC = 1;
       CPU_BOOST_ON_BAT = 0;
-      PLATFORM_PROFILE_ON_AC = "performance";
-      PLATFORM_PROFILE_ON_BAT = "quiet";
+      PLATFORM_PROFILE_ON_AC = "";  # disabled: ac-power-apply owns profile; TLP must not flip it
+      PLATFORM_PROFILE_ON_BAT = "";  # disabled: ac-power-apply owns profile; TLP must not flip it
       RUNTIME_PM_ON_AC = "on";
       RUNTIME_PM_ON_BAT = "auto";
       PCIE_ASPM_ON_AC = "default";
@@ -214,17 +251,27 @@
       CPU_MAX_PERF_ON_BAT = 20;
     };
   };
+  # Lower swappiness: prefer dropping page cache over swapping process memory
+  # to disk — fewer disk wakeups = better battery
+  boot.kernel.sysctl = {
+    "vm.swappiness" = 10;
+    "vm.vfs_cache_pressure" = 50;
+    "vm.dirty_ratio" = 10;
+    "vm.dirty_background_ratio" = 5;
+    "vm.dirty_writeback_centisecs" = 1500;
+  };
   boot.extraModprobeConfig = "options nvidia NVreg_PreserveVideoMemoryAllocations=1 NVreg_RegistryDwords=\"OverrideMaxPerf=0x1\"
 options asus_nb_wmi tablet_mode_sw=0
 ";
   boot.blacklistedKernelModules = [ "nouveau" ];
   boot.resumeDevice = "/dev/disk/by-uuid/716a5f26-630d-4a6e-900d-f28a62f00752";
-  # homelab CA: import /etc/nixos/modules/server/caddy-ca.crt manually if you
-  # need internal TLS trust for Vaultwarden/AdGuard; not committed to the repo.
+  # Homelab CA: import caddy-ca.crt manually if you need internal TLS trust
+  # for Vaultwarden/AdGuard. Not committed to this repo.
   # security.pki.certificateFiles = [ ../../modules/server/caddy-ca.crt ];
   security.sudo.extraRules = [{
     users = [ "nate" ];
     commands = [
+      { command = "/run/current-system/sw/bin/asus-charge-limit-set"; options = [ "NOPASSWD" ]; }
       { command = "/run/current-system/sw/bin/platform-profile"; options = [ "NOPASSWD" ]; }
       { command = "/run/current-system/sw/bin/mini-led-toggle"; options = [ "NOPASSWD" ]; }
       { command = "/home/nate/.local/bin/nixos-safe-rebuild"; options = [ "NOPASSWD" ]; }
@@ -233,10 +280,22 @@ options asus_nb_wmi tablet_mode_sw=0
       { command = "/run/current-system/sw/bin/to-default"; options = [ "NOPASSWD" ]; }
       { command = "/run/current-system/sw/bin/to-battery"; options = [ "NOPASSWD" ]; }
       { command = "/run/current-system/sw/bin/grub-menu"; options = [ "NOPASSWD" ]; }
+      { command = "/run/current-system/sw/bin/systemctl"; options = [ "NOPASSWD" ]; }
+      { command = "/run/current-system/sw/bin/wg"; options = [ "NOPASSWD" ]; }
     ];
   }];
   environment.systemPackages = with pkgs; [
     ddcutil
+    grok-bot
+    (writeShellScriptBin "asus-charge-limit-set" ''
+      # Widget entry point: applies via asusd's own client (so asusd's
+      # in-memory state matches) AND persists for the next boot.
+      pct="$1"
+      case "$pct" in ""|*[!0-9]*) echo "usage: asus-charge-limit-set <percent>" >&2; exit 1 ;; esac
+      ${pkgs.asusctl}/bin/asusctl battery limit "$pct" || exit 1
+      mkdir -p /var/lib/asus-charge-limit
+      echo "$pct" > /var/lib/asus-charge-limit/limit
+    '')
     (writeShellScriptBin "platform-profile" ''
       echo "$1" > /sys/firmware/acpi/platform_profile
     '')
@@ -267,6 +326,51 @@ options asus_nb_wmi tablet_mode_sw=0
       ${pkgs.grub2}/bin/grub-editenv /boot/grub/grubenv unset next_entry 2>/dev/null || true
       echo "next boot will show the GRUB menu"
     '')
+    # Single owner for AC transitions: applies FULL power state from adapter+battery.
+    # Battery mode when AC0=0 OR BAT0=Discharging (covers phantom-AC0-stuck-1).
+    # Fired by udev (starts ac-power-apply.service) on AC0 change + at boot. Idempotent via /run/ac-power-last.
+    (writeShellScriptBin "ac-power-apply" ''
+      set +e
+      AC=$(cat /sys/class/power_supply/AC0/online 2>/dev/null || echo 1)
+      BS=$(cat /sys/class/power_supply/BAT0/status 2>/dev/null || echo Unknown)
+      if [ "$AC" = "1" ] && [ "$BS" != "Discharging" ]; then MODE=AC; else MODE=BAT; fi
+      if [ "$MODE" = "AC" ]; then want=performance; else want=quiet; fi
+      last=$(cat /run/ac-power-last 2>/dev/null || echo "")
+      cur=$(cat /sys/firmware/acpi/platform_profile 2>/dev/null || echo "")
+      # NOTE: this intentionally overrides manual profile changes on the next
+      # trigger (single-owner policy: AC state owns the profile, no exceptions).
+      { [ "$MODE" = "$last" ] && [ "$cur" = "$want" ]; } && exit 0
+      echo "$MODE" > /run/ac-power-last
+      if [ "$MODE" = "AC" ]; then
+        ${pkgs.asusctl}/bin/asusctl profile set performance || true
+        /run/current-system/sw/bin/tlp ac || true
+        echo 0 > /sys/devices/system/cpu/intel_pstate/no_turbo || true
+        echo 100 > /sys/devices/system/cpu/intel_pstate/max_perf_pct || true
+        HWMAX=$(cat /sys/devices/system/cpu/cpu0/cpufreq/cpuinfo_max_freq 2>/dev/null || echo 5200000)
+        for c in /sys/devices/system/cpu/cpu*/cpufreq/scaling_max_freq; do echo "$HWMAX" > "$c" || true; done
+        for c in /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor; do echo performance > "$c" || true; done
+        for c in /sys/devices/system/cpu/cpu*/cpufreq/energy_performance_preference; do echo performance > "$c" || true; done
+        echo 50000000 > /sys/class/powercap/intel-rapl-mmio:0/constraint_0_power_limit_uw || true
+        echo 50000000 > /sys/class/powercap/intel-rapl-mmio:0/constraint_1_power_limit_uw || true
+        echo 50000000 > /sys/class/powercap/intel-rapl:0/constraint_0_power_limit_uw || true
+      else
+        ${pkgs.asusctl}/bin/asusctl profile set quiet || true
+        /run/current-system/sw/bin/tlp bat || true
+        echo 1 > /sys/devices/system/cpu/intel_pstate/no_turbo || true
+        echo 20 > /sys/devices/system/cpu/intel_pstate/max_perf_pct || true
+        for c in /sys/devices/system/cpu/cpu*/cpufreq/scaling_max_freq; do echo 2600000 > "$c" || true; done
+        for c in /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor; do echo powersave > "$c" || true; done
+        for c in /sys/devices/system/cpu/cpu*/cpufreq/energy_performance_preference; do echo power > "$c" || true; done
+        echo 20000000 > /sys/class/powercap/intel-rapl-mmio:0/constraint_0_power_limit_uw || true
+        echo 20000000 > /sys/class/powercap/intel-rapl-mmio:0/constraint_1_power_limit_uw || true
+        echo 20000000 > /sys/class/powercap/intel-rapl:0/constraint_0_power_limit_uw || true
+      fi
+      # Re-pin ron's auto-switch flags: asusd rewrites them on profile set.
+      # --no-block: guard is After=ac-power-apply, a blocking start deadlocks boot.
+      /run/current-system/sw/bin/systemctl start --no-block asusd-ron-guard.service || true
+      # Immediate Hz follow-up (profile just changed; timer backstop would take up to 15s)
+      /run/current-system/sw/bin/systemctl start platform-profile-switch.service || true
+    '')
   ];
   # DDC/CI for monitor brightness control
   hardware.i2c.enable = true;
@@ -275,6 +379,10 @@ options asus_nb_wmi tablet_mode_sw=0
     KERNEL=="iio:device*", SUBSYSTEM=="iio", ATTR{name}=="accel_3d", TAG+="systemd", ENV{SYSTEMD_WANTS}="iio-sensor-proxy.service"
     # Disable ELAN9008 UNKNOWN sub-devices that cause cursor teleporting
     KERNEL=="event*", ATTRS{name}=="ELAN9008:00 04F3:2FC4 UNKNOWN", ENV{LIBINPUT_IGNORE}="1"
+    # AC transitions: single-owner handler applies full power state (see ac-power-apply).
+    # TLP 85-tlp.rules also fires tlp auto here; the 15s timer re-enforces on mismatch.
+    # udev cannot RUN a /run path (build-time existence check) -> trigger the service instead.
+    ACTION=="change", SUBSYSTEM=="power_supply", KERNEL=="AC0", TAG+="systemd", ENV{SYSTEMD_WANTS}+="ac-power-apply.service"
   '';
   systemd.services.iio-sensor-proxy = {
     description = "IIO Sensor Proxy for accelerometer/rotation";
@@ -363,12 +471,12 @@ options asus_nb_wmi tablet_mode_sw=0
       echo 135 > /sys/devices/platform/asus-nb-wmi/ppt_pl2_sppt 2>/dev/null || true
       echo 87 > /sys/devices/platform/asus-nb-wmi/nv_temp_target 2>/dev/null || true
       # MSR domain view (intel_pstate) - keep consistent with enforced MMIO limit
-      echo 65000000 > /sys/class/powercap/intel-rapl:0/constraint_0_power_limit_uw 2>/dev/null || true
+      echo 50000000 > /sys/class/powercap/intel-rapl:0/constraint_0_power_limit_uw 2>/dev/null || true
       # THE ENFORCED LIMIT: intel-rapl-mmio:0. Stock EC/default leaves this at
       # ~22W/27W which pins the CPU at 2.4GHz all-core. 65W unlocks 4.8-5.0GHz
       # bursts while keeping CPU package temp ~75-80C under load (95C+ at 100W+).
-      echo 65000000 > /sys/class/powercap/intel-rapl-mmio:0/constraint_0_power_limit_uw 2>/dev/null || true
-      echo 65000000 > /sys/class/powercap/intel-rapl-mmio:0/constraint_1_power_limit_uw 2>/dev/null || true
+      echo 50000000 > /sys/class/powercap/intel-rapl-mmio:0/constraint_0_power_limit_uw 2>/dev/null || true
+      echo 50000000 > /sys/class/powercap/intel-rapl-mmio:0/constraint_1_power_limit_uw 2>/dev/null || true
       # Direct MSR write: ensure PL1=PL2 (no inverted cap) so P-cores boost freely.
       modprobe msr 2>/dev/null || true
       ${pkgs.msr-tools}/bin/wrmsr -p 0 0x610 0x42864000df8640 2>/dev/null || true
@@ -387,11 +495,53 @@ options asus_nb_wmi tablet_mode_sw=0
     };
   };
 
+  # Boot + udev-driven full power-state apply (single owner for AC transitions).
+  # Replaces asusd auto-switch (missed plug events) and TLP profile writes.
+  # udev starts this unit on AC0 change (SYSTEMD_WANTS); wantedBy covers boot.
+  systemd.services.ac-power-apply = {
+    description = "Apply full power state from AC adapter/battery state";
+    after = [ "asusd.service" ];
+    wantedBy = [ "multi-user.target" ];
+    serviceConfig = {
+      Type = "oneshot";
+      ExecStart = "/run/current-system/sw/bin/ac-power-apply";
+    };
+  };
+  # asusd rewrites /etc/asusd/asusd.ron at runtime (replaces the Nix symlink
+  # with a regular file), flipping change_platform_profile_* back to true and
+  # re-enabling its flaky auto-switch (observed: perf->quiet flap + 50W Saga
+  # 2026-09-12). Re-pin the flags after asusd is up; restart asusd only when
+  # something was actually fixed. Symlink present = declaration intact, no-op.
+  # Charge threshold deliberately untouched (owned by asus-charge-limit-set).
+  # See above: asusd re-applies sticky profile on restart; reconcile after every start.
+  systemd.services.asusd.serviceConfig.ExecStartPost = [
+    "/run/current-system/sw/bin/systemctl start --no-block ac-power-apply.service"
+  ];
+  systemd.services.asusd-ron-guard = {
+    description = "Re-pin asusd auto-switch flags asusd rewrites at runtime";
+    after = [ "asusd.service" "ac-power-apply.service" ];
+    wantedBy = [ "multi-user.target" ];
+    serviceConfig.Type = "oneshot";
+    script = ''
+      RON=/etc/asusd/asusd.ron
+      [ -L "$RON" ] && exit 0
+      fixed=0
+      for key in change_platform_profile_on_battery change_platform_profile_on_ac; do
+        if ${pkgs.gnugrep}/bin/grep -q "$key: true," "$RON" 2>/dev/null; then
+          ${pkgs.gnused}/bin/sed -i "s/$key: true,/$key: false,/" "$RON" 2>/dev/null && fixed=1 || true
+        fi
+      done
+      if [ "$fixed" = "1" ]; then
+        # --no-block: guard is After=asusd, a blocking restart deadlocks the same way.
+        /run/current-system/sw/bin/systemctl restart --no-block asusd.service || true
+      fi
+    '';
+  };
   # Supergfxctl manages GPU mode switching with VFIO rebind
   # Switch display Hz when platform_profile changes; sync TLP mode.
   # Change-gated (see script): unchanged ticks exit in ~1ms instead of
   # running the full 50ms+ pipeline — the old 3s unconditional poll kept
-  # the CPU out of deep C-states. 15s is plenty for catching profile flips.
+  # the CPU out of deep C-states. 15s backstop only; ac-power-apply owns transitions.
   systemd.timers.platform-profile-switch = {
     wantedBy = [ "multi-user.target" ];
     timerConfig.OnBootSec = "5s";
@@ -417,7 +567,19 @@ options asus_nb_wmi tablet_mode_sw=0
       tlp_pwr=$(awk '{print $2}' /run/tlp/last_pwr 2>/dev/null || echo "")
       # Change gate: profile unchanged AND TLP still matching → ~1ms no-op
       last=$(cat /tmp/platform-profile-last 2>/dev/null || echo "")
-      if [ "$profile" = "$last" ] && [ "$tlp_pwr" = "$desired_pwr" ]; then
+      # Compute desired Hz for this profile (drift gate)
+      # NOTE: this hyprctl call runs BEFORE HYPRLAND_INSTANCE_SIGNATURE is
+      # exported below, so it fails under `set -e` (hyprctl prints to stdout,
+      # jq parse error, exit 5) without the `|| true` guards — that killed the
+      # service every 15s and skipped the TLP sync + CPU re-assert. Empty values
+      # just skip the gates.
+      case "$profile" in
+        quiet) want_hz=60 ;;
+        performance|balanced) want_hz=240 ;;
+        *) want_hz="" ;;
+      esac
+      cur_hz=$(${pkgs.hyprland}/bin/hyprctl monitors -j | ${pkgs.jq}/bin/jq -r '.[] | select(.name == "eDP-1") | .refreshRate | floor' 2>/dev/null || true)
+      if [ "$profile" = "$last" ] && [ "$tlp_pwr" = "$desired_pwr" ] && [ "$want_hz" = "$cur_hz" ]; then
         exit 0
       fi
       echo "$profile" > /tmp/platform-profile-last
@@ -432,9 +594,8 @@ options asus_nb_wmi tablet_mode_sw=0
           ;;
       esac
       }
-      # Re-assert CPU state if profile is performance but quiet-mode limits leaked in
-      # (asusd quiet-flip sets no_turbo=1, max_perf=20, governor=powersave, 2.6GHz cap)
-      # Uses sudo -n tee (NOPASSWD in sudoers) since service runs as nate.
+      # Backstop: enforce CPU state matching profile (handler owns transitions;
+      # this only corrects drift from tlp-auto/asusd/manual races).
       if [ "$profile" = "performance" ] || [ "$profile" = "balanced" ]; then
         NT=$(cat /sys/devices/system/cpu/intel_pstate/no_turbo 2>/dev/null)
         MP=$(cat /sys/devices/system/cpu/intel_pstate/max_perf_pct 2>/dev/null)
@@ -451,27 +612,61 @@ options asus_nb_wmi tablet_mode_sw=0
             echo performance | sudo -n /run/current-system/sw/bin/tee "$c" >/dev/null 2>&1 || true
           done
         fi
+      elif [ "$profile" = "quiet" ]; then
+        # Battery powersave: cap CPU at 20% / 2.6GHz / no turbo.
+        NT=$(cat /sys/devices/system/cpu/intel_pstate/no_turbo 2>/dev/null)
+        MP=$(cat /sys/devices/system/cpu/intel_pstate/max_perf_pct 2>/dev/null)
+        GOV=$(cat /sys/devices/system/cpu/cpu0/cpufreq/scaling_governor 2>/dev/null)
+        if [ "$NT" != "1" ] || [ "$MP" != "20" ] || [ "$GOV" != "powersave" ]; then
+          echo 1 | sudo -n /run/current-system/sw/bin/tee /sys/devices/system/cpu/intel_pstate/no_turbo >/dev/null 2>&1 || true
+          echo 20 | sudo -n /run/current-system/sw/bin/tee /sys/devices/system/cpu/intel_pstate/max_perf_pct >/dev/null 2>&1 || true
+          for c in /sys/devices/system/cpu/cpu*/cpufreq/scaling_max_freq; do
+            echo 2600000 | sudo -n /run/current-system/sw/bin/tee "$c" >/dev/null 2>&1 || true
+          done
+          for c in /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor; do
+            echo powersave | sudo -n /run/current-system/sw/bin/tee "$c" >/dev/null 2>&1 || true
+          done
+          for c in /sys/devices/system/cpu/cpu*/cpufreq/energy_performance_preference; do
+            echo power | sudo -n /run/current-system/sw/bin/tee "$c" >/dev/null 2>&1 || true
+          done
+        fi
       fi
-      # Find Hyprland instance
-      sig=$(ls -d /run/user/1000/hypr/*/ 2>/dev/null | tail -1 | xargs basename 2>/dev/null)
+      # Find Hyprland instance — connect-test each candidate: a stale sig
+      # dir (crashed/killed Hyprland) still contains its .socket.sock file,
+      # and alphabetical order can pick it, making every hyprctl call fail.
+      sig=""
+      for d in /run/user/1000/hypr/*/; do
+        s=$(basename "$d" 2>/dev/null) || continue
+        if ${pkgs.hyprland}/bin/hyprctl --instance "$s" monitors -j >/dev/null 2>&1; then
+          sig=$s; break
+        fi
+      done
       [ -z "$sig" ] && exit 0
-      [ ! -S "/run/user/1000/hypr/$sig/.socket.sock" ] && exit 0
       export XDG_RUNTIME_DIR=/run/user/1000
       export HYPRLAND_INSTANCE_SIGNATURE=$sig
-      pos=$(${pkgs.hyprland}/bin/hyprctl monitors -j | ${pkgs.jq}/bin/jq -r '.[] | select(.name == "eDP-1") | "\(.x)x\(.y)"' 2>/dev/null)
-      scale=$(${pkgs.hyprland}/bin/hyprctl monitors -j | ${pkgs.jq}/bin/jq -r '.[] | select(.name == "eDP-1") | .scale' 2>/dev/null)
-      tr=$(${pkgs.hyprland}/bin/hyprctl monitors -j | ${pkgs.jq}/bin/jq -r '.[] | select(.name == "eDP-1") | .transform // 0' 2>/dev/null)
+      pos=$(${pkgs.hyprland}/bin/hyprctl monitors -j | ${pkgs.jq}/bin/jq -r '.[] | select(.name == "eDP-1") | "\(.x)x\(.y)"' 2>/dev/null || true)
+      scale=$(${pkgs.hyprland}/bin/hyprctl monitors -j | ${pkgs.jq}/bin/jq -r '.[] | select(.name == "eDP-1") | .scale' 2>/dev/null || true)
+      tr=$(${pkgs.hyprland}/bin/hyprctl monitors -j | ${pkgs.jq}/bin/jq -r '.[] | select(.name == "eDP-1") | .transform // 0' 2>/dev/null || true)
       [ -z "$pos" ] && pos="0x0"
       [ -z "$scale" ] && scale="1"
-      [ -z "$tr" ] && tr="0"
+      # Refresh-rate drift gate: re-assert Hz even when profile hasn't changed
+      # (config reload / monitor hotplug can reset Hz to the static 240 rule)
+      case "$profile" in
+        quiet) want_hz=60 ;;
+        performance|balanced) want_hz=240 ;;
+        *) want_hz="" ;;
+      esac
+      cur_hz=$(${pkgs.hyprland}/bin/hyprctl monitors -j | ${pkgs.jq}/bin/jq -r '.[] | select(.name == "eDP-1") | .refreshRate | floor' 2>/dev/null || true)
+      if [ -n "$want_hz" ] && [ "$cur_hz" != "$want_hz" ]; then
       case "$profile" in
         quiet)
-          ${pkgs.hyprland}/bin/hyprctl eval 'hl.monitor({ output = "eDP-1", mode = "2560x1600@60", position = "'"$pos"'", scale = '"$scale"', transform = '"$tr"' })' 2>/dev/null
+          ${pkgs.hyprland}/bin/hyprctl eval 'hl.monitor({ output = "eDP-1", mode = "2560x1600@60", position = "'"$pos"'", scale = '"$scale"', transform = '"$tr"' })' 2>/dev/null || true
           ;;
         performance|balanced)
-          ${pkgs.hyprland}/bin/hyprctl eval 'hl.monitor({ output = "eDP-1", mode = "2560x1600@240", position = "'"$pos"'", scale = '"$scale"', transform = '"$tr"' })' 2>/dev/null
+          ${pkgs.hyprland}/bin/hyprctl eval 'hl.monitor({ output = "eDP-1", mode = "2560x1600@240", position = "'"$pos"'", scale = '"$scale"', transform = '"$tr"' })' 2>/dev/null || true
           ;;
       esac
+      fi
     '';
   };
   environment.sessionVariables.SSL_CERT_FILE = "/etc/ssl/certs/ca-certificates.crt";
@@ -507,6 +702,32 @@ options asus_nb_wmi tablet_mode_sw=0
     enable = true;
     addToSystemPackages = true;
     environmentFiles = [ "/var/lib/hermes/env" ];
+    # FIX 2026-09-04: hermes-agent input v2026.8.31 (v0.21.0) shipped broken —
+    # hermes_state.py does a top-level `import hermes_state_holders`, but that
+    # file is absent from the tag (landed upstream on main Sep 2 as 5e01b8fa).
+    # Without it every SessionDB path fails: `sessions list/browse/stats`,
+    # in-session /resume and /sessions (empty), and new chats run unindexed.
+    # Workaround: vendor that exact upstream file (blob 9f4176d4, stdlib-only)
+    # and inject it via the module's extraPythonPackages PYTHONPATH hook.
+    # REMOVE this once the hermes-agent input moves to a tag containing
+    # hermes_state_holders.py (check: file exists at the input's repo root).
+    # NOTE: a pre-existing uncommitted input bump to 13939699 (which contains
+    # the file) is stashed, not lost: `git stash list`.
+    extraPythonPackages = [
+      (pkgs.python312Packages.buildPythonPackage {
+        pname = "hermes-state-holders";
+        version = "0.21.0+fix1";
+        format = "other";
+        src = ../../modules/nixos/hermes-state-holders.py;
+        dontUnpack = true;
+        dontBuild = true;
+        dontConfigure = true;
+        installPhase = ''
+          mkdir -p $out/${pkgs.python312.sitePackages}
+          cp $src $out/${pkgs.python312.sitePackages}/hermes_state_holders.py
+        '';
+      })
+    ];
     settings = {
       toolsets = [ "all" ];
       max_turns = 100;
@@ -534,7 +755,12 @@ options asus_nb_wmi tablet_mode_sw=0
   virtualisation.docker = {
     enable = true;
     enableOnBoot = false;
-    autoPrune.enable = true;
+    # autoPrune runs `docker system prune -f` PLUS `docker volume prune
+    # --force --all` on a TIMER (not on login), so it fires unattended and
+    # `volume prune --all` deletes every unused volume -- including the
+    # dockur/windows disk image backing the WinBoat VM. Re-enable only when
+    # no long-lived stateful container volumes are in use.
+    autoPrune.enable = false;
   };
   specialisation."battery".configuration = {
     boot.loader.grub.configurationName = lib.mkForce "Battery";
@@ -571,23 +797,4 @@ options asus_nb_wmi tablet_mode_sw=0
     };
   };
 
-  # Block LAN access to llama-server port (keep Tailscale + localhost)
-  systemd.services.llama-firewall = {
-    description = "Block LAN access to llama-server port 11434";
-    after = [ "firewall.service" ];
-    wantedBy = [ "multi-user.target" ];
-    serviceConfig.Type = "oneshot";
-    serviceConfig.RemainAfterExit = true;
-    path = [ pkgs.iptables ];
-    script = ''
-      iptables -I INPUT -p tcp --dport 11434 -i wlan0 -j DROP
-      iptables -I INPUT -p tcp --dport 11434 -i lo -j ACCEPT
-    '';
-    preStop = ''
-      iptables -D INPUT -p tcp --dport 11434 -i wlan0 -j DROP
-      iptables -D INPUT -p tcp --dport 11434 -i lo -j ACCEPT
-    '';
-  };
-
 }
-

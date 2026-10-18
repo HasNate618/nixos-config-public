@@ -1,0 +1,20 @@
+# Matugen-generated cava config
+# Wallpaper-derived Material You colors
+
+[color]
+background = 'default'
+foreground = '{{colors.on_surface.default.hex}}'
+gradient = 1
+
+# Hand-made cava themes walk the gradient through the accent hues rather than
+# repeating one or two (catppuccin: teal -> sky -> sapphire -> blue -> mauve ->
+# pink -> maroon -> red). Repeating primary/secondary here is what made the
+# visualiser read as a single flat colour.
+gradient_color_1 = '{{colors.secondary.default.hex}}'
+gradient_color_2 = '{{colors.primary.default.hex}}'
+gradient_color_3 = '{{colors.tertiary.default.hex}}'
+gradient_color_4 = '{{colors.primary.default.hex}}'
+gradient_color_5 = '{{colors.secondary.default.hex}}'
+gradient_color_6 = '{{colors.tertiary.default.hex}}'
+gradient_color_7 = '{{colors.secondary.default.hex}}'
+gradient_color_8 = '{{colors.error.default.hex}}'

@@ -2,11 +2,27 @@ import QtQuick
 import QtQuick.Layouts
 import Quickshell
 import Quickshell.Wayland
+import Quickshell.Hyprland
 
 // Unified OSD — volume, screen brightness, keyboard brightness.
-// Shows whichever changed last. Background styled like OmniMenu.
+// Entrance: grow + fade (scale 0.90→1.0, opacity 0→1) with the slider doing a
+// gauge sweep 0→value. Repeat key presses while visible skip all of that and
+// just step the slider; an interrupted exit snaps back in instantly.
+// Every duration below is gated on root.focusMode: focus mode is a flat,
+// animation-free desktop, so the OSD appears and disappears instantly there.
+// Only the DURATION changes — the start/end values are untouched, so the
+// resting state is identical in both modes.
+// The frame is four explicit 1px rectangles (a Rectangle border stroke on a
+// 1.25-scaled output can lose individual edges to rasterization).
 PanelWindow {
     id: osd
+    screen: {
+        var fm = Hyprland.focusedMonitor;
+        var s = Quickshell.screens;
+        if (fm) for (var i = 0; i < s.length; i++)
+            if (s[i].name === fm.name) return s[i];
+        return s.length > 0 ? s[0] : null;
+    }
     required property var root
 
     color: "transparent"
@@ -22,49 +38,53 @@ PanelWindow {
     // Click-through via empty mask
     mask: Region {}
 
-    property bool _showing: false
-    property real _opacity: 0
     property string _mode: "volume"  // "volume", "brightness", "kbd"
+    property bool _shown: false      // panel at full scale/opacity (or entering)
+    property real _fillRatio: 1      // entry sweep: fill = min(value, _fillRatio)
 
     visible: true
-
-    Behavior on _opacity {
-        NumberAnimation { duration: 150; easing.type: Easing.OutQuad }
-    }
 
     Timer {
         id: hideTimer
         interval: 1500
-        onTriggered: { osd._showing = false; osd._opacity = 0; }
+        onTriggered: osd.hide()
     }
 
     Connections {
         target: osd.root
-        function onAudioVolChanged() {
-            osd._mode = "volume";
-            osd.show();
-        }
-        function onAudioMutedChanged() {
-            osd._mode = "volume";
-            osd.show();
-        }
-        function onBrightnessPctChanged() {
-            osd._mode = "brightness";
-            osd.show();
-        }
-        function onKbdBrightnessChanged() {
-            osd._mode = "kbd";
-            osd.show();
-        }
+        function onAudioVolChanged()      { osd._mode = "volume";     osd.show(); }
+        function onAudioMutedChanged()    { osd._mode = "volume";     osd.show(); }
+        function onBrightnessPctChanged() { osd._mode = "brightness"; osd.show(); }
+        function onKbdBrightnessChanged() { osd._mode = "kbd";        osd.show(); }
     }
 
     function show() {
-        _showing = true;
-        _opacity = 1;
         hideTimer.restart();
+        if (enterAnim.running || _shown) return;  // on screen / entering: value update only
+        if (exitAnim.running) {                   // interrupted exit: snap back in
+            exitAnim.stop();
+            snapIn();
+            _shown = true;
+            return;
+        }
+        _shown = true;
+        enterAnim.start();
     }
 
-    // Current values based on mode
+    function hide() {
+        if (!_shown || exitAnim.running) return;
+        _shown = false;
+        enterAnim.stop();
+        exitAnim.start();
+    }
+
+    function snapIn() {
+        slideHost.visible = true;
+        slideHost.scale = 1;
+        slideHost.opacity = 1;
+        _fillRatio = 1;
+    }
+
     readonly property real _value: {
         if (_mode === "volume") return osd.root.audioVol / 100;
         if (_mode === "brightness") return osd.root.brightnessPct / 100;
@@ -74,10 +94,16 @@ PanelWindow {
             : 0;
     }
 
+    // Two-digit padded percent ("07%", "45%", "100%").
+    function _pct(v) {
+        var s = String(Math.max(0, Math.min(100, Math.round(v))));
+        while (s.length < 2) s = "0" + s;
+        return s + "%";
+    }
+
     readonly property string _label: {
-        if (_mode === "volume") return osd.root.audioMuted ? "MUTE" : osd.root.audioVol + "%";
-        if (_mode === "brightness") return osd.root.brightnessPct + "%";
-        // kbd: named levels
+        if (_mode === "volume") return osd.root.audioMuted ? "MUTE" : osd._pct(osd.root.audioVol);
+        if (_mode === "brightness") return osd._pct(osd.root.brightnessPct);
         var k = osd.root.kbdBrightness;
         if (k <= 0) return "OFF";
         if (k === 1) return "LOW";
@@ -91,63 +117,146 @@ PanelWindow {
         return osd._kbdIcon;
     }
 
-    // Background — OmniMenu style
-    Rectangle {
+    // ── Panel ──
+    Item {
+        id: slideHost
         anchors.fill: parent
-        anchors.margins: 10
-        color: Qt.rgba(osd.root.paper.r * 0.4, osd.root.paper.g * 0.4, osd.root.paper.b * 0.4, 0.99)
-        border.color: osd.root.sep
-        border.width: 1
-        radius: osd.root.cornerRadius
-        opacity: osd._opacity
+        transformOrigin: Item.Center
+        visible: false
+        opacity: 1
+        scale: 1
 
-        Row {
-            anchors.centerIn: parent
-            spacing: 14
+        Rectangle {
+            id: bg
+            anchors.fill: parent
+            anchors.margins: 10
+            color: Qt.rgba(osd.root.paper.r * 0.4, osd.root.paper.g * 0.4, osd.root.paper.b * 0.4,
+                           osd.root.focusMode ? 1.0 : 0.98)
+            radius: osd.root.cornerRadius
+            clip: true
 
-            // Fixed-width icon
-            Text {
-                anchors.verticalCenter: parent.verticalCenter
-                width: 18
-                horizontalAlignment: Text.AlignHCenter
-                text: osd._icon
-                color: osd.root.seal
-                font.family: osd.root.mono
-                font.pixelSize: 18
+            // Explicit frame — four 1px edges.
+            Rectangle {
+                anchors { left: parent.left; right: parent.right; top: parent.top }
+                height: 1
+                color: osd.root.sep
+                antialiasing: false
+            }
+            Rectangle {
+                anchors { left: parent.left; right: parent.right; bottom: parent.bottom }
+                height: 1
+                color: osd.root.sep
+                antialiasing: false
+            }
+            Rectangle {
+                anchors { left: parent.left; top: parent.top; bottom: parent.bottom }
+                width: 1
+                color: osd.root.sep
+                antialiasing: false
+            }
+            Rectangle {
+                anchors { right: parent.right; top: parent.top; bottom: parent.bottom }
+                width: 1
+                color: osd.root.sep
+                antialiasing: false
             }
 
-            Rectangle {
-                anchors.verticalCenter: parent.verticalCenter
-                width: 180
-                height: 8
-                radius: 3
-                color: osd.root.sep
+            RowLayout {
+                id: content
+                anchors.centerIn: parent
+                spacing: 8
+
+                Text {
+                    Layout.alignment: Qt.AlignVCenter
+                    Layout.preferredWidth: 18
+                    Layout.rightMargin: 6
+                    horizontalAlignment: Text.AlignHCenter
+                    text: osd._icon
+                    color: osd.root.ink
+                    font.family: osd.root.mono
+                    font.pixelSize: 15
+                }
 
                 Rectangle {
-                    anchors.left: parent.left
-                    anchors.top: parent.top
-                    anchors.bottom: parent.bottom
-                    width: parent.width * Math.min(1, osd._value)
-                    radius: 3
-                    color: osd.root.seal
+                    Layout.alignment: Qt.AlignVCenter
+                    width: 190
+                    height: 8
+                    radius: 0
+                    color: osd.root.sep
 
-                    Behavior on width {
-                        NumberAnimation { duration: 80; easing.type: Easing.OutQuad }
+                    Rectangle {
+                        id: fillBar
+                        anchors.left: parent.left
+                        anchors.top: parent.top
+                        anchors.bottom: parent.bottom
+                        width: parent.width * Math.min(1, Math.min(osd._value, osd._fillRatio))
+                        radius: 0
+                        color: osd.root.seal
+
+                        Behavior on width {
+                            NumberAnimation {
+                                duration: osd.root.focusMode ? 0 : 80
+                                easing.type: Easing.OutQuad
+                            }
+                        }
                     }
                 }
-            }
 
-            // Fixed-width label
-            Text {
-                anchors.verticalCenter: parent.verticalCenter
-                width: 40
-                horizontalAlignment: Text.AlignRight
-                text: osd._label
-                color: osd.root.ink
-                font.family: osd.root.mono
-                font.pixelSize: 14
-                font.weight: Font.Medium
+                Text {
+                    Layout.alignment: Qt.AlignVCenter
+                    Layout.preferredWidth: 36
+                    horizontalAlignment: Text.AlignRight
+                    text: osd._label
+                    color: osd.root.ink
+                    font.family: osd.root.mono
+                    font.pixelSize: 14
+                    font.weight: Font.Medium
+                }
             }
+        }
+    }
+
+    // ── Enter: grow + fade, with a gauge sweep on the slider ──
+    ParallelAnimation {
+        id: enterAnim
+        NumberAnimation {
+            target: slideHost; property: "scale"
+            from: 0.90; to: 1.0
+            duration: osd.root.focusMode ? 0 : 180; easing.type: Easing.OutCubic
+        }
+        NumberAnimation {
+            target: slideHost; property: "opacity"
+            from: 0; to: 1
+            duration: osd.root.focusMode ? 0 : 150; easing.type: Easing.OutQuad
+        }
+        SequentialAnimation {
+            PauseAnimation { duration: osd.root.focusMode ? 0 : 60 }
+            NumberAnimation {
+                target: osd; property: "_fillRatio"
+                from: 0; to: 1
+                duration: osd.root.focusMode ? 0 : 260; easing.type: Easing.OutCubic
+            }
+        }
+        onStarted: { slideHost.visible = true; }
+    }
+
+    // ── Exit: shrink + fade ──
+    ParallelAnimation {
+        id: exitAnim
+        NumberAnimation {
+            target: slideHost; property: "scale"
+            from: 1.0; to: 0.95
+            duration: osd.root.focusMode ? 0 : 110; easing.type: Easing.InQuad
+        }
+        NumberAnimation {
+            target: slideHost; property: "opacity"
+            from: 1; to: 0
+            duration: osd.root.focusMode ? 0 : 110; easing.type: Easing.InQuad
+        }
+        onFinished: {
+            slideHost.visible = false;
+            slideHost.scale = 1;
+            slideHost.opacity = 1;
         }
     }
 

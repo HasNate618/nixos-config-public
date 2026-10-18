@@ -2,6 +2,7 @@ import QtQuick
 import Quickshell
 import Quickshell.Wayland
 import Quickshell.Io
+import Quickshell.Hyprland
 import Quickshell.Services.Mpris
 
 // Omarchy top bar. Owns the per-bar state, probes, and IPC; per-feature
@@ -14,12 +15,21 @@ Item {
 
     required property var theme
 
+    // Focus mode passthrough - Bar/Bloom/Module/Workspace gate their
+    // animations on root.focusMode, and `root` is this Navbar.
+    readonly property bool focusMode: theme.focusMode
+
     readonly property color paper:   theme.paper
     readonly property color ink:     theme.ink
     readonly property color inkDeep: theme.inkDeep
     readonly property color sumi:    theme.inkDeep
     readonly property color indigo:  theme.indigo
     readonly property color seal:    theme.seal
+    // Genuine warnings only (low battery, muted, high CPU). `seal` is the
+    // chrome accent — the active workspace dot, hover, selected rows, the menu
+    // and power glyphs — so it must NOT be red. Before this split both were
+    // regular1 (red), which made the whole shell read as bg + white + red.
+    readonly property color alert:   theme.alert ? Qt.color(theme.alert) : theme.seal
     readonly property color bg:      theme.bg
     readonly property color fg:      theme.fg
     readonly property color muted:   theme.muted
@@ -37,11 +47,21 @@ Item {
             1.0
         );
     }
-    readonly property color tintCpu:    root.nearWhite(theme.seal)
-    readonly property color tintRam:    root.nearWhite(theme.seal)
-    readonly property color tintVol:    root.nearWhite(theme.seal)
-    readonly property color tintBat:    root.nearWhite(theme.seal)
-    readonly property color tintCorne:  root.nearWhite(theme.seal)
+    // Each widget gets its OWN hue in focus mode (a1..a5 from the scheme),
+    // falling back to the shared seal tint outside it. Previously all five
+    // were nearWhite(theme.seal) — one colour — which is why the bar read as
+    // background + white + red.
+    // theme.aN is a raw hex string, or "" when focus mode has not supplied it
+    // (the normal matugen path) — then the shared seal tint is used, so the bar
+    // is unchanged outside focus mode.
+    function widgetTint(hex) {
+        return root.nearWhite(hex ? Qt.color(hex) : theme.seal);
+    }
+    readonly property color tintCpu:    root.widgetTint(theme.a1)
+    readonly property color tintRam:    root.widgetTint(theme.a2)
+    readonly property color tintVol:    root.widgetTint(theme.a3)
+    readonly property color tintBat:    root.widgetTint(theme.a4)
+    readonly property color tintCorne:  root.widgetTint(theme.a5)
 
     // Traces the corne keyboard outline onto a Canvas 2D context.
     function cornePath(ctx) {
@@ -88,6 +108,7 @@ Item {
     readonly property string corneTintHex: "#" + ((Math.round(tintCorne.r*255)<<16) | (Math.round(tintCorne.g*255)<<8) | Math.round(tintCorne.b*255)).toString(16).padStart(6,"0")
 
     readonly property string serif: theme.serif
+    readonly property string serifCJK: theme.serifCJK
     readonly property string mono:  theme.mono
 
     readonly property int  cornerRadius: theme.cornerRadius
@@ -95,6 +116,7 @@ Item {
 
     // Wired in desktop/shell.qml to the sibling OmniMenu's toggle().
     signal paletteToggleRequested()
+    signal powerMenuRequested()
 
     // Kanji numerals 〇 一 二 ... 十.
     readonly property var kanjiNum: ["〇","一","二","三","四","五","六","七","八","九","十"]
@@ -210,15 +232,31 @@ Item {
     // Bar registers its trigger Items here so openCalendar/Weather/Display
     // can re-anchor on every open — including IPC opens from OmniMenu that
     // don't go through a click handler.
-    property Item calendarAnchorItem: null
-    property Item weatherAnchorItem:  null
-    property Item displayAnchorItem:  null
-    property Item batteryAnchorItem:  null
+    // Per-screen anchor items: Bar.qml registers each bar's trigger
+    // widgets keyed by screen name. A single shared item is wrong with
+    // one bar per screen — the last registration wins and redirects
+    // every popup to that bar's monitor. Lookups use popupScreen, which
+    // callers set first (clicked bar for clicks, the focused screen for
+    // IPC/keybind opens).
+    property var calendarAnchors: ({})
+    property var weatherAnchors: ({})
 
     function anchorPopupTo(item) {
         const p = item.mapToItem(null, item.width / 2, item.height / 2);
         root.popupAnchorX = p.x;
         root.popupAnchorY = p.y;
+    }
+
+    // The focused monitor's screen — keybind/IPC opens target it (same
+    // behaviour as the battery).
+    function focusedScreen() {
+        const fm = Hyprland.focusedMonitor;
+        const ss = Quickshell.screens;
+        if (fm) {
+            for (var i = 0; i < ss.length; i++)
+                if (ss[i].name === fm.name) return ss[i];
+        }
+        return null;
     }
 
     // ---------- State ----------
@@ -409,13 +447,21 @@ Item {
     function setBatteryLimit(pct) {
         root.batChargeLimit = pct;
         root._clProbeSeq++;
-        root.run("asusctl battery limit " + pct);
+        root.run("sudo -n asus-charge-limit-set " + pct);
         chargeLimitRefreshTimer.restart();
     }
     Timer {
         id: chargeLimitRefreshTimer
         interval: 1200
         repeat: false
+        onTriggered: root.refreshChargeLimit()
+    }
+    // Slow poll so the display self-heals if the limit changes outside
+    // the widget (boot service, EC reset) or an early-boot probe raced sysfs.
+    Timer {
+        interval: 60000
+        running: true
+        repeat: true
         onTriggered: root.refreshChargeLimit()
     }
     function refreshChargeLimit() {
@@ -427,7 +473,7 @@ Item {
         id: chargeLimitProbe
         running: false
         command: ["bash", "-c",
-            "cat /sys/class/power_supply/BAT0/charge_control_end_threshold 2>/dev/null || echo 100"]
+            "cat /sys/class/power_supply/BAT0/charge_control_end_threshold 2>/dev/null"]
         stdout: StdioCollector {
             onStreamFinished: {
                 if (root._clProbeSeq > 0) root._clProbeSeq--;
@@ -463,6 +509,9 @@ Item {
     // ---------- Calendar popup state ----------
     property bool calendarVisible: false
     property bool batteryVisible: false
+    property bool focusSchemesVisible: false
+    property real batteryPopX: 0
+    property real batteryPopY: 0
     property int calendarMonthOffset: 0
     // Bumped on each open so the cells/title bindings below re-evaluate
     // (new Date() is opaque to QML's dependency tracker — touching this
@@ -519,8 +568,8 @@ Item {
         const year = first.getFullYear();
         const month = first.getMonth();
         const lastDay = new Date(year, month + 1, 0).getDate();
-        // Monday-first week: shift Sunday (0) to slot 6.
-        const startDay = (first.getDay() + 6) % 7;
+        // Sunday-first week: Sunday (0) is already slot 0.
+        const startDay = first.getDay();
         const today = new Date();
         const isCurrentMonth = year === today.getFullYear() && month === today.getMonth();
         const easter = root.easterDate(year);
@@ -574,7 +623,12 @@ Item {
     }
 
     function openCalendar() {
-        // popupAnchorX/Y already set by Bar click handler
+        // Re-anchor from the TARGET screen's registered clock item so
+        // IPC opens (keybinds) land under the widget, not at a stale
+        // anchor. popupScreen is set by the caller (clicked bar for
+        // clicks, focused screen for keybinds).
+        var it = root.calendarAnchors[root.popupScreen ? root.popupScreen.name : ""];
+        if (it) root.anchorPopupTo(it);
         root.calendarMonthOffset = 0;
         root.calendarTick++;
         root.selectedDay = (new Date()).getDate();
@@ -586,6 +640,13 @@ Item {
         // popupAnchorX/Y already set by Bar click handler
         _batteryPopup.screen = root.popupScreen;
         root.batteryVisible = true;
+    }
+
+    function openFocusSchemes() {
+        // Centred card, no bar anchor — opened by keybind while focus
+        // mode is on (SUPER+CTRL+SPACE routes through hypr-skwd-toggle).
+        _focusSchemes.screen = root.popupScreen;
+        root.focusSchemesVisible = true;
     }
 
     property int   brightnessPct: 100
@@ -741,7 +802,8 @@ Item {
     }
 
     function openWeather() {
-        if (root.weatherAnchorItem) root.anchorPopupTo(root.weatherAnchorItem);
+        var it = root.weatherAnchors[root.popupScreen ? root.popupScreen.name : ""];
+        if (it) root.anchorPopupTo(it);
         if (root.popupScreen) _weatherPopup.screen = root.popupScreen;
         root.weatherVisible = true;
     }
@@ -904,7 +966,7 @@ Item {
                     root.batPower = (parseInt(p[10]) || 0) / 1e6;
                     root.cpuTemp = Math.round((parseInt(p[11]) || 0) / 1000);
                     root.memTotalGB = Math.round((parseInt(p[12]) || 0) / 1024 / 1024);
-                    root.memUsedGB = Math.round((parseInt(p[13]) || 0) / 1024 / 1024);
+                    root.memUsedGB = (parseInt(p[13]) || 0) / 1024 / 1024;
                     // Battery time remaining
                     const bst = p[3] || "Unknown";
                     const pwr = (parseFloat(p[10]) || 0) / 1e6;  // convert µW to W
@@ -1128,6 +1190,19 @@ Item {
         }
     }
 
+    // Seed the initial audio state: pactl subscribe emits nothing until the
+    // first change, so without this the bar shows 0%/no icon until the user
+    // touches the volume. Retried a few times to cover the shell starting
+    // before pipewire is ready.
+    Timer {
+        interval: 1500; running: true; repeat: true; triggeredOnStart: true
+        property int seedTries: 0
+        onTriggered: {
+            audioRefresh.running = false; audioRefresh.running = true;
+            if (++seedTries >= 3) running = false;
+        }
+    }
+
     // ---------- Bluetooth device probe ----------
     // Walks every paired/known device through `bt-device --info` to pull
     // its name + connected/paired/trusted flags. Cheap at the few-devices-
@@ -1326,7 +1401,7 @@ Item {
         onTriggered: root.refreshPowerProfile()
     }
 
-    Component.onCompleted: { refreshPowerProfile(); refreshChargeLimit(); }
+    Component.onCompleted: { refreshPowerProfile(); refreshChargeLimit(); audioRefresh.running = false; audioRefresh.running = true; }
 
     // ---------- Omarchy update probe ----------
     // Mirrors waybar's custom/update: omarchy-update-available exits 0 and
@@ -1394,16 +1469,17 @@ Item {
     CalendarPopup    { id: _calendarPopup; root: root }
     WeatherPopup     { id: _weatherPopup; root: root }
     BatteryPopup     { id: _batteryPopup; root: root }
+    FocusSchemes     { id: _focusSchemes; root: root }
 
     // ---------- IPC ----------
-    // bind = SUPER, W, exec, qs ipc call weather toggle
+    // bind = SUPER SHIFT, W, exec, qs -c desktop ipc call weather toggle
     IpcHandler {
         target: "weather"
         function toggle(): void {
             if (root.weatherVisible) root.weatherVisible = false;
-            else root.openWeather();
+            else { root.popupScreen = root.focusedScreen() || root.popupScreen; root.openWeather(); }
         }
-        function open(): void    { root.openWeather(); }
+        function open(): void    { root.popupScreen = root.focusedScreen() || root.popupScreen; root.openWeather(); }
         function close(): void   { root.weatherVisible = false; }
         function refresh(): void { root.refreshWeather(); }
     }
@@ -1419,14 +1495,14 @@ Item {
         function close(): void { root.aetherVisible = false; }
     }
 
-    // bind = SUPER, C, exec, qs ipc call calendar toggle
+    // bind = SUPER SHIFT, C, exec, qs -c desktop ipc call calendar toggle
     IpcHandler {
         target: "calendar"
         function toggle(): void {
             if (root.calendarVisible) root.calendarVisible = false;
-            else root.openCalendar();
+            else { root.popupScreen = root.focusedScreen() || root.popupScreen; root.openCalendar(); }
         }
-        function open(): void  { root.openCalendar(); }
+        function open(): void  { root.popupScreen = root.focusedScreen() || root.popupScreen; root.openCalendar(); }
         function close(): void { root.calendarVisible = false; }
     }
 
@@ -1435,10 +1511,22 @@ Item {
         target: "battery"
         function toggle(): void {
             if (root.batteryVisible) root.batteryVisible = false;
-            else root.openBattery();
+            else { root.popupScreen = root.focusedScreen() || root.popupScreen; root.popupAnchorX = root.batteryPopX; root.popupAnchorY = root.batteryPopY; root.openBattery(); }
         }
-        function open(): void  { root.openBattery(); }
+        function open(): void  { root.popupScreen = root.focusedScreen() || root.popupScreen; root.popupAnchorX = root.batteryPopX; root.popupAnchorY = root.batteryPopY; root.openBattery(); }
         function close(): void { root.batteryVisible = false; }
+    }
+
+    // Focus-mode scheme picker — SUPER+CTRL+SPACE while focus mode is on
+    // (hypr-skwd-toggle routes here instead of launching skwd's picker).
+    IpcHandler {
+        target: "schemes"
+        function toggle(): void {
+            if (root.focusSchemesVisible) root.focusSchemesVisible = false;
+            else { root.popupScreen = root.focusedScreen() || root.popupScreen; root.openFocusSchemes(); }
+        }
+        function open(): void  { root.popupScreen = root.focusedScreen() || root.popupScreen; root.openFocusSchemes(); }
+        function close(): void { root.focusSchemesVisible = false; }
     }
 
     // ---------- MPRIS (now playing) ----------

@@ -3,7 +3,18 @@
   programs.fish = {
         enable = true;
     generateCompletions = false;
-    shellAliases = {
+    # Abbreviations, NOT aliases. Two reasons:
+    #   1. Agent safety by construction. home-manager emits shellAliases inside
+    #      `status is-interactive`, so non-interactive `fish -c` already skipped
+    #      them — but that is a side effect of the guard. Abbrs never expand in a
+    #      non-interactive shell at all, so an agent running `fish -c` can never
+    #      pick up `ls`->eza or `grep`->rg no matter how the guard changes.
+    #   2. They expand visibly. `grep`->`rg` is NOT argument-compatible: grep -r
+    #      means recursive while rg -r means --replace (needs a value), so
+    #      `grep -rn foo` becomes `rg -rn foo` and fails. With an alias that
+    #      breaks silently at exec; with an abbr you see the expansion on space
+    #      and can catch it before hitting enter.
+    shellAbbrs = {
       ls = "eza --icons";
       ll = "eza -l --icons";
       la = "eza -la --icons";
@@ -38,26 +49,28 @@
 
     functions = {
       fish_greeting = "";
-      llama = "bash /home/nate/AI/llama.sh $argv";
+      llama = "bash $HOME/AI/llama.sh $argv";
       vpn = ''
         set -l sub $argv[1]
-        if test -z "$sub"
-          if nordvpn status 2>/dev/null | string match -qi '*Connected*'
-            echo "nordvpn up -> disconnecting..."
-            nordvpn disconnect
-          else
-            echo "nordvpn down -> connecting..."
-            nordvpn connect
-          end
-        else if test "$sub" = on
-          nordvpn connect
+        if test "$sub" = on
+          sudo systemctl start wg-quick-nordlynx
         else if test "$sub" = off
-          nordvpn disconnect
+          sudo systemctl stop wg-quick-nordlynx
         else if test "$sub" = status
-          nordvpn status
+          if ip link show nordlynx >/dev/null 2>&1
+            echo "nordlynx: UP"
+            sudo wg show nordlynx
+          else
+            echo "nordlynx: DOWN"
+          end
         else
-          echo "usage: vpn [on|off|status]"
-          return 1
+          if ip link show nordlynx >/dev/null 2>&1
+            echo "nordlynx is up — disabling..."
+            sudo systemctl stop wg-quick-nordlynx
+          else
+            echo "nordlynx is down — enabling..."
+            sudo systemctl start wg-quick-nordlynx
+          end
         end
       '';
     };

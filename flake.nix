@@ -10,10 +10,13 @@
     sops-nix.url = "github:Mic92/sops-nix";
     sops-nix.inputs.nixpkgs.follows = "nixpkgs";
     nix-cachyos-kernel.url = "github:xddxdd/nix-cachyos-kernel/release";
-    hermes-agent.url = "github:NousResearch/hermes-agent";
-    zen-browser.url = "github:youwen5/zen-browser-flake/de6d9094822a8f87fc380d1638f34d6cc6fa68ca";
+    hermes-agent.url = "github:NousResearch/hermes-agent?ref=v2026.8.31";
+    zen-browser.url = "github:youwen5/zen-browser-flake/20195bc99e82";
     zen-browser.inputs.nixpkgs.follows = "nixpkgs";
-    skwd-wall.url = "github:liixini/skwd-wall";
+    skwd-wall = {
+      url = "github:liixini/skwd-wall/nix";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
     zen-pdf-viewer.url = "github:HasNate618/zen-pdf-viewer";
     zen-markdown-viewer.url = "github:HasNate618/zen-markdown-viewer";
     hyprland-preview-share-picker = {
@@ -24,18 +27,34 @@
       url = "github:nix-community/nix-index-database";
       inputs.nixpkgs.follows = "nixpkgs";
     };
+    grok-bot = {
+      url = "github:jordangarrison/grok-bot-flake";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
+    # pi upstream ships its own Nix build: source build with nodejs_22, a
+    # node wrapper (so the Cursor provider's native @cursor/sdk addon loads)
+    # and autoPatchelf on native prebuilds. Consuming its overlay keeps `pi`
+    # a plain pkgs attribute, so modules/nixos/packages.nix is unchanged.
+    pi-flake = {
+      url = "github:earendil-works/pi?ref=v1.1.0";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
   };
 
-  outputs = { self, nixpkgs, home-manager, sops-nix, hermes-agent, nix-cachyos-kernel, zen-browser, skwd-wall, zen-pdf-viewer, zen-markdown-viewer, hyprland-preview-share-picker, nix-index-database, ... }: {
+  outputs = { self, nixpkgs, home-manager, sops-nix, hermes-agent, nix-cachyos-kernel, zen-browser, skwd-wall, zen-pdf-viewer, zen-markdown-viewer, hyprland-preview-share-picker, nix-index-database, grok-bot, pi-flake, ... }: {
     nixosConfigurations = {
       flow = nixpkgs.lib.nixosSystem {
         system = "x86_64-linux";
         specialArgs = {
           inherit (zen-pdf-viewer.packages.x86_64-linux) zen-pdf-viewer;
           inherit (zen-markdown-viewer.packages.x86_64-linux) zen-markdown-viewer;
-          skwd-wall = skwd-wall.packages.x86_64-linux.default;
+          # skwd-wall v2: packages come from the `nix` branch release flake;
+          # the suite (skwd-wall-v2/skwd-walld/skwd-paper-v2/skwd-lens) is
+          # installed by the module (services.skwd-deck), no specialArg needed.
           hyprland-preview-share-picker = hyprland-preview-share-picker.packages.x86_64-linux.default;
           nix-cachyos-kernel = nix-cachyos-kernel;
+          grok-bot = grok-bot.packages.x86_64-linux.default;
+          pi-flake = pi-flake;
         };
         modules = [
           hermes-agent.nixosModules.default
@@ -102,6 +121,7 @@
           inherit (zen-pdf-viewer.packages.x86_64-linux) zen-pdf-viewer;
           inherit (zen-markdown-viewer.packages.x86_64-linux) zen-markdown-viewer;
           hyprland-preview-share-picker = hyprland-preview-share-picker.packages.x86_64-linux.default;
+          pi-flake = pi-flake;
         };
         modules = [
           "${nixpkgs}/nixos/modules/installer/cd-dvd/installation-cd-minimal.nix"
@@ -113,6 +133,7 @@
           ./modules/nixos/packages.nix
           ./modules/shared/packages.nix
           nix-index-database.nixosModules.default
+          skwd-wall.nixosModules.default
           home-manager.nixosModules.home-manager {
             home-manager.useGlobalPkgs = true;
             home-manager.useUserPackages = true;

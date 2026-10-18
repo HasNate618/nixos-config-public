@@ -1,26 +1,51 @@
-# Pin Hyprland to 0.55.4 (nixpkgs rev 61b7c44c407, Jul 18 2026).
+# Hyprland 0.56.2 tracking nixpkgs unstable + the special-workspace patch.
 #
-# WHY: Hyprland 0.56.0+ broke blur behind foot's transparent background
-# (foot requests blur via the ext-background-effect-v1 protocol; the path
-# regressed in 0.56 and was NOT fixed in 0.56.1 or 0.56.2). Zen and layer
-# surfaces still blur — only foot-style protocol surfaces are affected.
-#   https://github.com/hyprwm/Hyprland/discussions/15530
-#   https://github.com/hyprwm/Hyprland/discussions/15524
-# The old derivation is already in the store (built with gen 871), so this
-# pin costs nothing to build.
+# WHY no 0.55.4 pin: the foot transparent-background blur regression that
+# motivated it was fixed upstream in commit 6a8c7613 (PR #14639), which
+# landed IN 0.56.0 itself. foot.ini needs `blur = yes` under [colors-dark]
+# to opt into ext-background-effect-v1 (a client-side setting on 0.56+).
 #
-# REMOVE THIS OVERLAY once a Hyprland release fixes the foot blur
-# regression, then `nix flake update nixpkgs` to resume tracking unstable.
+# ── aquamarine: override the src to the rev upstream pairs with 0.56.2 ──
+#
+# WHY: nixpkgs ships hyprland 0.56.2 built against aquamarine TAG v0.14.0,
+# but upstream Hyprland 0.56.2's own flake.lock pins aquamarine commit
+# 1a10fe26a9f7 (a post-v0.14.0 commit). Tag v0.14.0 lacks the fix for the
+# stranded page-flip that wedges the eDP panel after an idle DPMS-off:
+#
+#   drm: Modesetting eDP-1 with 2560x1600@240.00Hz
+#   ERR drm: Cannot commit when a page-flip is awaiting
+#   ERR drm: Cannot commit when a page-flip is awaiting
+#
+# Mechanism: `dpms off` powers the connector down while a page-flip is in
+# flight, so its completion event never reaches handlePF() and the
+# scheduler's in-flight flag stays set forever. Every later commit is then
+# rejected -> backlight on, dpmsStatus=1, no scanout, input dead. Only a
+# connector teardown/rebuild (e.g. a DPMS cycle) clears it.
+#
+# Upstream: hyprwm/aquamarine#304 (and hyprwm/Hyprland#14521).
+# Fix: invalidateFrame() -> crtc->disarmPageFlip() in applyCommit's disable
+# branch. Absent in v0.12.1/v0.13.0/v0.14.0; present from 0.15.0 on.
+#
+# 1a10fe2 is the exact rev upstream pairs with 0.56.2, so it is ABI-matched
+# by construction: SOVERSION stays 13 and CMakeLists.txt is byte-identical
+# to v0.14.0 (pure src swap, no dependency change). The hash below equals
+# the narHash in hyprland v0.56.2's own flake.lock.
+#
+# Drop this override once nixpkgs ships aquamarine >= 0.15.0.
 
-let
-  oldNixpkgs = builtins.fetchTarball {
-    url = "https://github.com/NixOS/nixpkgs/archive/61b7c44c4073f0b827768aff0049561b5110ea5a.tar.gz";
-    sha256 = "1knbr9j7szzlppbp0r9rby06nml7b45vqhmskgycfbcnr1nanqnp";
-  };
-in
 final: prev: {
-  hyprland = (import oldNixpkgs {
-    inherit (final) system;
-    config.allowUnfree = true;
-  }).hyprland;
+  hyprland = prev.hyprland.overrideAttrs (old: {
+    patches = (old.patches or [ ]) ++ [ ./hyprland-special-workspace-no-fade.patch ];
+  });
+
+  aquamarine = prev.aquamarine.overrideAttrs (old: {
+    version = "0.14.0-unstable-2026-08-04";
+
+    src = prev.fetchFromGitHub {
+      owner = "hyprwm";
+      repo = "aquamarine";
+      rev = "1a10fe26a9f7d989c359e6a9ea61aa2e44d06c36";
+      hash = "sha256-H2CrAlJD9FsUbSEIhPVK3IyVjnK0vSxPruBef17GcBs=";
+    };
+  });
 }

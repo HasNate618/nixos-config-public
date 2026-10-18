@@ -41,7 +41,7 @@ Item {
         anchors.margins: 3
         radius: modItem.root.cornerRadius
         color: mouse.containsMouse ? Qt.rgba(modItem.root.ink.r, modItem.root.ink.g, modItem.root.ink.b, 0.08) : "transparent"
-        Behavior on color { ColorAnimation { duration: 180 } }
+        Behavior on color { ColorAnimation { duration: modItem.root.focusMode ? 0 : 180 } }
     }
 
     Bloom { id: bloom; root: modItem.root }

@@ -17,6 +17,11 @@ Item {
 
     onActiveChanged: {
         if (active && root.lastDirection !== 0) {
+            if (root.focusMode) {
+                kanji.slideX = 0;
+                kanji.slideY = 0;
+                return;
+            }
             slideHome.stop();
             if (root.isHorizontal) {
                 kanji.slideX = root.lastDirection * 2;
@@ -52,27 +57,30 @@ Item {
         text: wsCell.label
         color: wsCell.active ? wsCell.root.seal : (wsCell.present ? wsCell.root.ink : wsCell.root.inkDeep)
         opacity: wsCell.active ? 1.0 : (wsCell.present ? 0.75 : 0.35)
-        font.family: wsCell.root.serif
+        // NieR kanji: explicit CJK serif family (weight is honored
+        // deterministically; the generic "serif" alias can swallow it).
+        font.family: wsCell.root.serifCJK
         font.pixelSize: wsCell.active ? 14 : 12
-        font.weight: Font.Light
-        Behavior on color { ColorAnimation { duration: 120 } }
-        Behavior on opacity { NumberAnimation { duration: 120 } }
-        Behavior on font.pixelSize { NumberAnimation { duration: 120 } }
+        font.weight: Font.Medium
+        Behavior on color { ColorAnimation { duration: wsCell.root.focusMode ? 0 : 120 } }
+        Behavior on opacity { NumberAnimation { duration: wsCell.root.focusMode ? 0 : 120 } }
+        Behavior on font.pixelSize { NumberAnimation { duration: wsCell.root.focusMode ? 0 : 120 } }
     }
 
     // Active workspace underline indicator — always has a thin base line
     // so the gap between cells is visible, then fills with accent when active.
+    // Raised 1px so its bottom never intersects the bar's inner edge hairline.
     Rectangle {
         anchors.horizontalCenter: parent.horizontalCenter
         anchors.bottom: parent.bottom
-        anchors.bottomMargin: root.isHorizontal ? 0 : 0
-        width: root.isHorizontal ? 18 : 4
+        anchors.bottomMargin: root.isHorizontal ? 1 : 0
+        width: root.isHorizontal ? 22 : 4
         height: root.isHorizontal ? 2 : 18
         radius: 0
         color: wsCell.active ? wsCell.root.seal : "transparent"
         opacity: wsCell.active ? 1.0 : 0.0
-        Behavior on color { ColorAnimation { duration: 120 } }
-        Behavior on opacity { NumberAnimation { duration: 120 } }
+        Behavior on color { ColorAnimation { duration: wsCell.root.focusMode ? 0 : 120 } }
+        Behavior on opacity { NumberAnimation { duration: wsCell.root.focusMode ? 0 : 120 } }
     }
 
     MouseArea {

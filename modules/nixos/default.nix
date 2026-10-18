@@ -3,7 +3,7 @@
     ./core.nix
     ./btop-intel-gpu.nix
     ./networking.nix
-    ./nordvpn.nix
+    ./nordvpn-wg.nix
     ./services.nix
     ./packages.nix
     ./hyprland.nix
@@ -13,6 +13,6 @@
     ./power-unbind.nix
     ./llama-cpp.nix
     ./psvr2-vr.nix
-    ./matugen-hook.nix
+    ./desktop-heavy.nix
   ];
 }

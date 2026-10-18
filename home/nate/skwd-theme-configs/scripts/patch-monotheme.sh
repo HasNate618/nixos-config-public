@@ -20,8 +20,9 @@ B=$(echo "$BG_RGB" | cut -d, -f3 | tr -d ' ')
 
 # Find the matugen block at the end and update it
 if grep -q 'Matugen: content area background' "$THEME_CSS"; then
-    # Update existing line (match any alpha value)
-    sed -i "s/@define-color theme_base_color rgba([0-9]*, [0-9]*, [0-9]*, [0-9.]*);/@define-color theme_base_color rgba($R, $G, $B, 0.20);/" "$THEME_CSS"
+    # Update existing line (any alpha, optional trailing semicolon — older
+    # runs appended the line without one, which made this sed a silent no-op)
+    sed -i "s/@define-color theme_base_color rgba([0-9]*, [0-9]*, [0-9]*, [0-9.]*);\?/@define-color theme_base_color rgba($R, $G, $B, 0.20);/" "$THEME_CSS"
 else
     # Append new block
     echo "" >> "$THEME_CSS"

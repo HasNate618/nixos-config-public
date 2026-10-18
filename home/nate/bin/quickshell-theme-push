@@ -1,0 +1,21 @@
+#!/usr/bin/env bash
+# Push matugen palette to quickshell, recolor corne SVGs, sync glow style.
+# Called by the skwd-wall / matugen pipeline after colors.toml updates.
+COLORS_FILE="$HOME/.config/quickshell/colors.toml"
+[ -f "$COLORS_FILE" ] || exit 0
+
+PAYLOAD=$(python3 -c "
+import json, re, sys
+colors = {}
+with open('$COLORS_FILE') as f:
+    for line in f:
+        m = re.match(r'\\s*(\\w+)\\s*=\\s*\\\"([^\\\"]+)\\\"', line)
+        if m: colors[m[1].lower()] = m[2]
+print(json.dumps({'name': 'matugen', 'colors': colors}))
+" 2>/dev/null)
+if [ -n "$PAYLOAD" ]; then
+  qs-ipc call theme apply "$PAYLOAD" 2>/dev/null
+fi
+
+# Regenerate glow style from matugen colors
+/home/nate/.local/bin/glow-matugen-sync 2>/dev/null

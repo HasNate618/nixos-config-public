@@ -26,7 +26,7 @@ Item {
         icon: c.icon,
         category: c.category,
         keywords: c.keywords,
-        exec: "qs -c desktop ipc call " + c.target + " open"
+        exec: "/home/nate/.local/bin/qs-ipc call " + c.target + " open"
     })))
 
     // Kept for callers that still nudge a refresh — now a no-op.

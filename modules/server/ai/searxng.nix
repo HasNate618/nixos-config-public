@@ -48,8 +48,8 @@ let
       pool_connections: 100
       pool_maxsize: 20
       proxies:
-        http: http://gluetun:8888
-        https: http://gluetun:8888
+        http: http://gluetun-search:8888
+        https: http://gluetun-search:8888
 
     engines:
       # Google - best general results — NOTE: inactive by default in this image
@@ -65,7 +65,7 @@ let
       - name: bing
         engine: bing
         shortcut: bi
-        disabled: false
+        disabled: true
         weight: 1.0
 
       # Brave Search - excellent quality

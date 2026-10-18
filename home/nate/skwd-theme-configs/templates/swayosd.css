@@ -6,7 +6,7 @@ window#osd {
   border: 2px solid {{colors.primary.default.hex}};
   background: #141414;
   background-color: #141414;
-  opacity: 0.60;
+  opacity: @OPACITY@;
 }
 #container {
   margin: 12px;
@@ -15,7 +15,7 @@ window#osd image, window#osd label {
   color: {{colors.on_surface.default.hex}};
 }
 window#osd progressbar:disabled, window#osd image:disabled {
-  opacity: 0.60;
+  opacity: @OPACITY@;
 }
 window#osd progressbar, window#osd segmentedprogress {
   min-height: 6px;

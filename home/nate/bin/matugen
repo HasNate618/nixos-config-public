@@ -76,7 +76,9 @@ if [ -n "$IMGPATH" ]; then
   fi
 fi
 
-# Build args; drop --type for achromatic (tonal-spot ramp), keep for colored
+# Build args; drop the scheme flag for achromatic (tonal-spot ramp below),
+# keep it for colored wallpapers. skwd-wall v2 passes the scheme as -t <type>
+# on the command line, v1 relied on the config file — handle both spellings.
 DROP_TYPE=0
 [ -n "$EXTRA_LIGHTNESS" ] && DROP_TYPE=1
 ARGS=""
@@ -88,8 +90,8 @@ for arg in "$@"; do
   fi
   if [ "$DROP_TYPE" = 1 ]; then
     case "$arg" in
-      --type) SKIP_NEXT=true ;;
-      --type=*) : ;;
+      --type|-t) SKIP_NEXT=true ;;
+      --type=*|-t=*) : ;;
       *) ARGS="$ARGS \"$arg\"" ;;
     esac
   else
