@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+# VM SSH helper - usage: vm-ssh <command>
+# Uses key auth; falls back to a password prompt if keys aren't set up.
+ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -p 2222 nate@127.0.0.1 "$@"

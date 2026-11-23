@@ -1,0 +1,21 @@
+#!/usr/bin/env bash
+# Control an external monitor's brightness via DDC/CI.
+# Set DDC_BUS to the bus your monitor sits on (see `ddcutil detect`).
+
+BUS="${DDC_BUS:-1}"
+STEP=${1:-5}
+CURRENT=$(ddcutil --bus $BUS getvcp 10 2>/dev/null | grep -o "current value = *[0-9]*" | grep -o "[0-9]*")
+MAX=$(ddcutil --bus $BUS getvcp 10 2>/dev/null | grep -o "max value = *[0-9]*" | grep -o "[0-9]*")
+
+case "$STEP" in
+  up)   NEW=$((CURRENT + 5)) ;;
+  down) NEW=$((CURRENT - 5)) ;;
+  *)    NEW=$((CURRENT + STEP)) ;;
+esac
+
+# Clamp to 0-100
+[ "$NEW" -lt 0 ] && NEW=0
+[ "$NEW" -gt "$MAX" ] && NEW=$MAX
+
+ddcutil --bus $BUS setvcp 10 "$NEW" 2>/dev/null
+echo "$NEW"

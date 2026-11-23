@@ -1,0 +1,17 @@
+[build-system]
+requires = ["setuptools>=68.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "docling-ppocr-v6"
+version = "0.1.0"
+description = "Docling OCR plugin for PaddleOCR PP-OCRv6"
+requires-python = ">=3.10"
+dependencies = [
+    "docling>=2.0.0",
+    "numpy",
+    "Pillow",
+]
+
+[project.entry-points."docling"]
+ppocrv6 = "docling_ppocr_v6.ocr_engine"

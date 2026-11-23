@@ -1,0 +1,114 @@
+@import url("./colors.css");
+
+:root {
+    --base00: var(--color00);
+    --base01: color-mix(in srgb, var(--color00) 98%, white);
+    --base02: color-mix(in srgb, var(--color00) 94%, white);
+    --base03: var(--color03);
+    --base04: var(--color04);
+    --base05: var(--color05);
+    --base06: var(--color06);
+    --base07: var(--color07);
+    --base08: var(--color08);
+    --base09: var(--color09);
+    --base0A: var(--color0A);
+    --base0B: var(--color0B);
+    --base0C: var(--color0C);
+    --base0D: var(--color0D);
+    --base0E: var(--color0E);
+    --base0F: var(--color0F);
+}
+
+:root {
+    --color-accent-primary-active: var(--base0D) !important;
+    --color-accent-primary-hover: var(--base0D) !important;
+    --color-accent-primary: var(--base0D) !important;
+    --focus-outline-color: var(--base00) !important;
+    --icon-color-critical: var(--base08) !important;
+    --icon-color-information: var(--base0D) !important;
+    --icon-color-success: var(--base0B) !important;
+    --icon-color-warning: var(--base0A) !important;
+    --in-content-page-background: var(--base00) !important;
+    --input-text-background-color: var(--base02) !important;
+    --newtab-background-color-secondary: var(--base02) !important;
+    --newtab-background-color: var(--base01) !important;
+    --newtab-text-primary-color: var(--base05) !important;
+    --newtab-text-secondary-text: var(--base04) !important;
+    --newtab-wallpaper-color: var(--base01) !important;
+    --outline-color-error: var(--base08) !important;
+    --tab-block-margin: 0 !important;
+    --tab-border-radius: 0 !important;
+    --text-color-error: var(--base08) !important;
+    --toolbar-field-border-color: var(--base00) !important;
+    --toolbar-field-border-color: var(--base01) !important;
+    --toolbar-field-focus-background-color: var(--base02) !important;
+    --toolbar-field-focus-border-color: var(--base01) !important;
+    --toolbarbutton-border-radius: 6px !important;
+    --zen-main-browser-background: var(--base00) !important;
+}
+
+body {
+    border: none;
+}
+
+.logo-and-wordmark {
+    display: none !important;
+}
+.search-inner-wrapper {
+    margin-top: 10% !important;
+}
+
+/* ── about:preferences transparency ────────────────────────────────── */
+@-moz-document url-prefix("about:preferences") {
+    :root {
+        --in-content-page-background: transparent !important;
+        --in-content-box-background: color-mix(in srgb, var(--base00) 90%, transparent) !important;
+        --in-content-table-background: color-mix(in srgb, var(--base00) 85%, transparent) !important;
+        --in-content-button-background: transparent !important;
+        --in-content-button-background-hover: color-mix(in srgb, var(--base02) 80%, transparent) !important;
+        --in-content-button-background-active: color-mix(in srgb, var(--base01) 80%, transparent) !important;
+    }
+
+    html, body, #main-window, .main-content,
+    #preferences-root, #preferences-container,
+    .sticky-container, #categories,
+    .navigation, vbox.navigation {
+        background: transparent !important;
+    }
+
+    #categories {
+        border-right: none !important;
+        background: color-mix(in srgb, var(--base00) 75%, transparent) !important;
+    }
+
+    .category-name {
+        background: transparent !important;
+    }
+
+    #mainPrefTabGroup, .pane-container, .groupbox,
+    .tab-content, .pref-pane, .content-container,
+    #mainPrefTabGroup > .tab-content {
+        background: transparent !important;
+        border: none !important;
+    }
+
+    .info-panel, .info-box, .info-panel-content,
+    box, .box-inherit, .dialog-box {
+        background: transparent !important;
+    }
+
+    groupbox, .groupbox-body, .groupbox-title {
+        background: transparent !important;
+    }
+
+    checkbox, radio, .radio-check, .checkbox-check {
+        background: transparent !important;
+    }
+}
+
+/* Apply transparency to iframes */
+@-moz-document url-prefix("http"), url-prefix("https") {
+  html, body {
+    background-color: transparent !important;
+  }
+}

@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+# Dolphin wrapper — always runs on NVIDIA dGPU via PRIME offload
+# Vulkan backend + NVIDIA proprietary drivers + Wayland = stable presentation
+exec nvidia-offload /run/current-system/sw/bin/dolphin-emu "$@"

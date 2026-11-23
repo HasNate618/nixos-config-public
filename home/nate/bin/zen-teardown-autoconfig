@@ -1,0 +1,5 @@
+#!/bin/sh
+ZEN_STORE=$(dirname $(readlink -f $(which zen)))/../lib/zen-*/
+sudo -S -p '' umount "$ZEN_STORE/config.js" 2>/dev/null
+sudo -S -p '' umount "$ZEN_STORE/defaults/pref/config-prefs.js" 2>/dev/null
+echo "autoconfig unmounted"

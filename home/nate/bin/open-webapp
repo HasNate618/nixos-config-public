@@ -1,0 +1,29 @@
+#!/bin/sh
+# open-webapp — open a URL in a dedicated Zen webapp profile
+#
+# Usage:
+#   open-webapp https://example.com
+#   open-webapp https://music.youtube.com https://web.whatsapp.com
+#
+# Clears the profile's session store every launch so old tabs don't
+# accumulate. Uses --new-instance so the profile is forced, not inherited
+# from a running default-profile instance.
+
+ZEN_BIN="${ZEN_BIN:-zen}"
+PROFILE_DIR="${ZEN_WEBAPP_DIR:-$HOME/.config/zen/_webapp}"
+
+if [ $# -eq 0 ]; then
+  echo "Usage: open-webapp <url> [url2 ...]" >&2
+  exit 1
+fi
+
+# Wipe session store so stale tabs don't pile up
+rm -f "$PROFILE_DIR/sessionstore.jsonlz4" \
+      "$PROFILE_DIR/sessionCheckpoints.json" \
+      "$PROFILE_DIR/sessionstore-backups/"* \
+      "$PROFILE_DIR/recovery.jsonlz4" \
+      "$PROFILE_DIR/recovery.baklz4"
+
+exec setsid -f env \
+  MOZ_APP_SYSTEM_NAME="zen-webapp" \
+  "$ZEN_BIN" --new-instance --profile "$PROFILE_DIR" --new-window "$@"

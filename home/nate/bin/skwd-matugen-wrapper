@@ -1,0 +1,52 @@
+#!/bin/sh
+# skwd-matugen-wrapper — converts WebP wallpapers to PNG for matugen compatibility
+# Also passes --source-color-index 0 to bypass interactive color picker in matugen 4.x
+set -e
+
+# Parse args to extract image path and config path
+CONFIG=""
+IMAGE=""
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    -c) CONFIG="$2"; shift 2 ;;
+    --config) CONFIG="$2"; shift 2 ;;
+    image) IMAGE="$2"; shift 2 ;;
+    *) shift ;;
+  esac
+done
+
+if [ -z "$IMAGE" ]; then
+  echo "skwd-matugen-wrapper: no image path found" >&2
+  exit 1
+fi
+
+# Convert WebP to PNG if needed
+case "$IMAGE" in
+  *.webp|*.WEBP)
+    PNG_IMAGE="/tmp/skwd-matugen-$$.png"
+    magick "$IMAGE" "$PNG_IMAGE"
+    MATUGEN_IMAGE="$PNG_IMAGE"
+    ;;
+  *)
+    MATUGEN_IMAGE="$IMAGE"
+    ;;
+esac
+
+# Build args
+ARGS=""
+if [ -n "$CONFIG" ]; then
+  ARGS="$ARGS -c \"$CONFIG\""
+fi
+
+# Run matugen with --source-color-index 0 to bypass interactive picker.
+# No --fallback-color here: `matugen` on PATH is itself a wrapper that always
+# appends --fallback-color, so passing a second one makes matugen exit 1 with
+# "cannot be used multiple times". That kills every wallpaper theme update and
+# skips integration reloads (keyboard backlight included). The fallback colour
+# is owned by the matugen wrapper.
+eval "matugen $ARGS image \"$MATUGEN_IMAGE\" --source-color-index 0"
+
+# Clean up temp file
+if [ -n "$PNG_IMAGE" ] && [ -f "$PNG_IMAGE" ]; then
+  rm -f "$PNG_IMAGE"
+fi

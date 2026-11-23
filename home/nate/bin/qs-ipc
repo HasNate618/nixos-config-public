@@ -1,0 +1,66 @@
+#!/usr/bin/env bash
+# qs-ipc — send an IPC call to the RUNNING desktop shell, never spawn one.
+#
+# `qs -c desktop ipc call <target> <fn>` is dangerous in scripts and from QML
+# Processes: if instance resolution fails (stale socket, busy instance, or a
+# target that does not exist) quickshell falls back to LAUNCHING the config,
+# so a theme push silently starts a second shell — a duplicate bar that
+# cannot be dismissed, and a picker whose IPC stops resolving.
+#
+# This wrapper makes that impossible:
+#   * resolve the live instance id first (`qs list --all`), and bail out if
+#     there is none;
+#   * address it explicitly with `qs ipc --id <id>`, which is an IPC-only
+#     code path and has no launch fallback;
+#   * `-n`/`--no-duplicate` on every fallback attempt as a belt-and-braces
+#     guard;
+#   * hard timeout, so a wedged socket cannot hang the caller (the old
+#     behaviour left a blocked process holding a bar surface).
+#
+# Usage: qs-ipc call <target> <function> [args...]
+set -uo pipefail
+
+QS="${QS_BIN:-/etc/profiles/per-user/nate/bin/qs}"
+TIMEOUT="${QS_IPC_TIMEOUT:-8}"
+
+# Resolve the running instance of the desktop config. `qs list --all` prints
+# blocks like:
+#   Instance <id>:
+#     Process ID: 3647
+#     Config path: /home/nate/.config/quickshell/desktop/shell.qml
+_instance_id() {
+    timeout "$TIMEOUT" "$QS" list --all 2>/dev/null | awk '
+        /^Instance /            { sub(/:$/, "", $2); id = $2; next }
+        /Config path:.*\/desktop\/shell\.qml$/ { if (id != "") { print id; exit } }
+    '
+}
+
+# Fall back to the shell name if the config path did not match (e.g. the
+# registry is mid-rewrite): pick any live instance whose id resolves.
+_instance_id_any() {
+    timeout "$TIMEOUT" "$QS" list --all 2>/dev/null | awk '
+        /^Instance / { sub(/:$/, "", $2); print $2; exit }
+    '
+}
+
+id="$(_instance_id)"
+[ -n "$id" ] || id="$(_instance_id_any)"
+
+if [ -z "$id" ]; then
+    # No running shell: do NOT call through qs (that would launch one).
+    echo "qs-ipc: no running quickshell desktop instance — not sending" >&2
+    exit 1
+fi
+
+# Verify the instance is actually alive before addressing it.
+pid=$(timeout "$TIMEOUT" "$QS" list --all 2>/dev/null | awk -v i="$id" '
+    $0 ~ ("^Instance " i ":") { f = 1; next }
+    f && /Process ID:/ { print $3; exit }
+')
+if [ -n "$pid" ] && ! kill -0 "$pid" 2>/dev/null; then
+    echo "qs-ipc: instance $id (pid $pid) is not running — not sending" >&2
+    exit 1
+fi
+
+# `qs ipc --id` is IPC-only: it cannot launch a config.
+exec timeout "$TIMEOUT" "$QS" ipc --id "$id" "$@"

@@ -1,0 +1,8 @@
+module qs.omni
+Footer 1.0 Footer.qml
+HeaderBar 1.0 HeaderBar.qml
+PreviewPane 1.0 PreviewPane.qml
+QuickContainer 1.0 QuickContainer.qml
+ResultList 1.0 ResultList.qml
+SearchInput 1.0 SearchInput.qml
+EmojiGrid 1.0 EmojiGrid.qml

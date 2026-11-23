@@ -1,0 +1,23 @@
+#!/usr/bin/env bash
+# Startup lock: record the monitor scale the lock is built against, then lock.
+#
+# WHY: the first lock after login has shown a wrongly-sized password field while
+# every later lock is correct. hyprlock samples an output's fractional scale
+# ONCE, when it builds its session-lock surface (LockSurface.cpp:32), and eDP-1's
+# scale was previously assigned only by hypr-monitor-auto-layout a moment after
+# startup — with the startup hook firing that layout and this lock in the same
+# burst, so the first lock could be built against an unsettled scale and never
+# re-scale. eDP-1's scale is now pinned statically in hyprland.lua so the first
+# monitor apply already carries 1.25.
+#
+# This wrapper keeps the observed value on disk so the next login CONFIRMS the
+# scale hyprlock locked against, instead of us inferring it. Temporary
+# instrumentation: drop it (and the /tmp file) once the behaviour is confirmed.
+
+{
+  printf '=== startup lock %s ===\n' "$(date '+%F %T')"
+  hyprctl monitors -j 2>/dev/null |
+    jq -r '.[] | "\(.name) scale=\(.scale) focused=\(.focused) logical=\(.width)x\(.height)"' 2>/dev/null
+} >> /tmp/hyprlock-startup.log 2>&1
+
+exec hyprlock --immediate-render --no-fade-in

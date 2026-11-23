@@ -1,0 +1,66 @@
+#!/bin/sh
+# Record screen with desktop audio
+# Works by routing audio through built-in audio (which has a monitor),
+# forwarding to BT headphones via loopback, and capturing from the monitor.
+LOCKFILE="/tmp/screen-record.lock"
+LOOPFILE="/tmp/screen-record-loop.pid"
+ORIG_SINK_FILE="/tmp/screen-record-orig-sink"
+DIR="$HOME/Videos/Recordings"
+mkdir -p "$DIR"
+
+_notify() {
+  notify-send -a "Screen Record" "$1" 2>/dev/null
+}
+
+# Stop recording
+if [ -f "$LOCKFILE" ]; then
+  PID=$(cat "$LOCKFILE")
+  if kill -0 "$PID" 2>/dev/null; then
+    kill "$PID" 2>/dev/null
+    wait "$PID" 2>/dev/null
+    rm -f "$LOCKFILE"
+    if [ -f "$LOOPFILE" ]; then
+      kill "$(cat "$LOOPFILE")" 2>/dev/null
+      rm -f "$LOOPFILE"
+    fi
+    if [ -f "$ORIG_SINK_FILE" ]; then
+      wpctl set-default "$(cat "$ORIG_SINK_FILE")" 2>/dev/null
+      rm -f "$ORIG_SINK_FILE"
+    fi
+    _notify "Recording saved to $DIR"
+    exit 0
+  fi
+  rm -f "$LOCKFILE" "$LOOPFILE" "$ORIG_SINK_FILE"
+fi
+
+# Find current default sink
+DEFAULT_ID=$(wpctl status 2>/dev/null | grep -E '^\s+\*\s+[0-9]+\.' | head -1 | grep -oP '[0-9]+')
+DEFAULT_NODE=$(pw-dump 2>/dev/null | python3 -c "
+import sys, json
+data = json.load(sys.stdin)
+for n in data:
+    p = n.get('info',{}).get('props',{})
+    if str(p.get('object.serial','')) == '$DEFAULT_ID':
+        print(p.get('node.name','')); break
+" 2>/dev/null)
+
+echo "$DEFAULT_ID" > "$ORIG_SINK_FILE"
+
+# Set built-in audio as default (it has a monitor source)
+wpctl set-default 71 2>/dev/null
+
+# Forward built-in audio to original output (BT headphones) so user still hears
+if [ -n "$DEFAULT_NODE" ]; then
+  pw-loopback -n rec-fwd -c 2 \
+    -C "alsa_output.pci-0000_00_1f.3.analog-stereo.monitor" \
+    -P "$DEFAULT_NODE" &
+  echo $! > "$LOOPFILE"
+  sleep 0.3
+fi
+
+FILE="$DIR/record-$(date +%Y-%m-%d_%H-%M-%S).mp4"
+wf-recorder -f "$FILE" \
+  -a "alsa_output.pci-0000_00_1f.3.analog-stereo.monitor" \
+  --muxer:v mp4 --codec:v libx264 --qp 20 &
+echo $! > "$LOCKFILE"
+_notify "Recording started (desktop audio)"

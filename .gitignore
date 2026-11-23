@@ -1,0 +1,15 @@
+result
+result*
+*.bak*
+*.bak
+*.bak2
+.env
+*.env
+secrets/
+hermes-profiles/
+*.pem
+*.key
+*.crt
+*.cert
+*.p12
+*.pfx

@@ -1,0 +1,21 @@
+#!/bin/sh
+# Keyboard backlight control: Off/Low/Med/High levels
+DEVICE="*::kbd_backlight"
+
+# Get current and max values
+CURRENT=$(brightnessctl -d "$DEVICE" get 2>/dev/null)
+MAX=$(brightnessctl -d "$DEVICE" max 2>/dev/null)
+
+# Calculate new value
+case "$1" in
+  up)   NEW=$((CURRENT + 1)) ;;
+  down) NEW=$((CURRENT - 1)) ;;
+  *)    exit 1 ;;
+esac
+
+# Clamp to valid range
+[ "$NEW" -lt 0 ] && NEW=0
+[ "$NEW" -gt "$MAX" ] && NEW="$MAX"
+
+# Apply new value
+brightnessctl -d "$DEVICE" set "$NEW" 2>/dev/null

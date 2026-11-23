@@ -1,0 +1,17 @@
+#!/bin/sh
+# One-time setup: bind-mount fx-autoconfig files onto the Nix store
+ZEN_STORE=$(dirname $(readlink -f $(which zen)))/../lib/zen-*/
+OVERLAY="/tmp/zen-autoconfig-overlay"
+
+if mountpoint -q "$ZEN_STORE/config.js" 2>/dev/null; then
+  echo "autoconfig already mounted"
+  exit 0
+fi
+
+mkdir -p "$OVERLAY/defaults/pref"
+cp /tmp/zen-wabi/fx-autoconfig/program/config.js "$OVERLAY/config.js"
+cp /tmp/zen-wabi/fx-autoconfig/program/defaults/pref/config-prefs.js "$OVERLAY/defaults/pref/config-prefs.js"
+
+sudo -S -p '' mount --bind "$OVERLAY/config.js" "$ZEN_STORE/config.js"
+sudo -S -p '' mount --bind "$OVERLAY/defaults/pref/config-prefs.js" "$ZEN_STORE/defaults/pref/config-prefs.js"
+echo "autoconfig mounted"

@@ -1,0 +1,78 @@
+#!/usr/bin/env python3
+"""Generate glow style JSON from matugen colors.json (hex format)."""
+import json
+import sys
+from pathlib import Path
+
+COLORS_PATH = Path.home() / ".cache/skwd/colors.json"
+STYLE_PATH = Path.home() / ".config/glow/glow-style.json"
+
+def main():
+    if not COLORS_PATH.exists():
+        print(f"glow-matugen-sync: {COLORS_PATH} not found, skipping", file=sys.stderr)
+        return 1
+
+    with open(COLORS_PATH) as f:
+        c = json.load(f)
+
+    style = {
+        "document": {
+            "color": c.get("backgroundText", "#e0e0e0"),
+            "margin": 2
+        },
+        "heading": {
+            "color": c.get("primary", "#8ed883"),
+            "bold": True,
+            "block_suffix": "\n"
+        },
+        "h1": {"bold": True, "margin": 2},
+        "h2": {"bold": True, "margin": 1},
+        "h3": {"bold": True},
+        "block_quote": {
+            "color": c.get("surfaceVariantText", "#dec0b6"),
+            "indent": 1,
+            "indent_token": "| "
+        },
+        "list": {"color": c.get("backgroundText", "#e0e0e0")},
+        "item": {"block_prefix": "\u2022 "},
+        "enumeration": {"block_suffix": ". "},
+        "code_block": {
+            "color": c.get("backgroundText", "#e0e0e0"),
+            "background_color": c.get("surfaceVariant", "#262626")
+        },
+        "table": {"color": c.get("backgroundText", "#e0e0e0")},
+        # NO text.color — let heading.color inherit properly
+        "link": {
+            "color": c.get("secondary", "#fdb69c"),
+            "underline": True
+        },
+        "link_text": {
+            "color": c.get("secondaryContainerText", "#ffddd1"),
+            "bold": True
+        },
+        "code": {
+            "color": c.get("backgroundText", "#e0e0e0"),
+            "background_color": c.get("surfaceVariant", "#262626")
+        },
+        "emph": {
+            "color": c.get("primary", "#8ed883"),
+            "italic": True
+        },
+        "strong": {
+            "color": c.get("primary", "#8ed883"),
+            "bold": True
+        },
+        "strikethrough": {"crossed_out": True},
+        "hr": {"block_prefix": "\n---\n"}
+    }
+
+    STYLE_PATH.parent.mkdir(parents=True, exist_ok=True)
+    with open(STYLE_PATH, "w") as f:
+        json.dump(style, f, indent=2)
+        f.write("\n")
+
+    print(f"glow-matugen-sync: wrote {STYLE_PATH}", file=sys.stderr)
+    return 0
+
+if __name__ == "__main__":
+    sys.exit(main())

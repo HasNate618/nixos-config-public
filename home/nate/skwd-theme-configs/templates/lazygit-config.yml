@@ -1,0 +1,28 @@
+# Matugen-generated lazygit config
+# Wallpaper-derived Material You colors
+
+gui:
+  theme:
+    activeBorderColor:
+      - '{{colors.primary.default.hex}}'
+      - bold
+    inactiveBorderColor:
+      - '{{colors.outline.default.hex}}'
+    searchingActiveBorderColor:
+      - '{{colors.secondary.default.hex}}'
+      - bold
+    optionsTextColor:
+      - '{{colors.primary.default.hex}}'
+    selectedLineBgColor:
+      - '{{colors.primary_container.default.hex}}'
+      - underline
+    cherryPickedCommitBgColor:
+      - '{{colors.secondary_container.default.hex}}'
+    cherryPickedCommitFgColor:
+      - '{{colors.on_secondary_container.default.hex}}'
+    unstagedChangesColor:
+      - '{{colors.error.default.hex}}'
+    defaultFgColor:
+      - '{{colors.on_surface.default.hex}}'
+    stashColor:
+      - '{{colors.secondary.default.hex}}'

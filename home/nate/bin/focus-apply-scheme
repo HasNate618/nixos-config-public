@@ -1,0 +1,208 @@
+#!/usr/bin/env bash
+# Apply the active focus-mode colour scheme to every focused surface.
+#
+# Called by hypr-focus-toggle on entry and by focus-scheme on a live
+# switch. Owns:
+#   * the focus guard file — rewritten as the quickshell palette JSON so a
+#     (re)starting quickshell can restore focus colours from it;
+#   * the wallpaper — a solid 1×1 PNG of the scheme background, applied to
+#     every live output (skwd-helm accepts absolute paths outside the
+#     library; files live in ~/.cache/focus-bg/);
+#   * hyprlock — variable overrides in hyprlock-focus-override.conf. The
+#     file MUST contain variables only — hyprlock's background/input-field
+#     categories are anonymous-key based, so a second block spawns a
+#     SECOND widget (duplicate password field). hyprlock.conf sources it
+#     after the matugen theme and before the widget blocks;
+#   * quickshell — palette push via `theme focusPalette`;
+#   * foot — colors.ini rewrite + OSC push via foot-reload-colors.sh,
+#     which is focus-aware and reads the same scheme;
+#   * every skwd-wall integration output (btop, cava, pi, zen, GTK, ...) —
+#     focus-theme-render, deferred until the wallpaper pipeline has
+#     written its own fallback-coloured versions.
+set -uo pipefail
+
+SCHEMES="$HOME/.config/focus-mode/schemes"
+ACTIVE_FILE="$HOME/.config/focus-mode/active"
+STATE_FILE="$HOME/.cache/focus-mode"
+BG_DIR="$HOME/.cache/focus-bg"
+HYPRLOCK_OVERRIDE="$HOME/.config/hypr/hyprlock-focus-override.conf"
+LOCK_BG="$HOME/.config/hypr/lock-bg"
+
+[ -f "$STATE_FILE" ] || { echo "focus-apply-scheme: focus mode is off" >&2; exit 1; }
+
+slug="${1:-}"
+[ -n "$slug" ] || slug=$(cat "$ACTIVE_FILE" 2>/dev/null || true)
+[ -n "$slug" ] || slug=kanagawa-dragon
+scheme="$SCHEMES/$slug.conf"
+if [ ! -f "$scheme" ]; then
+    echo "focus-apply-scheme: unknown scheme '$slug' — falling back to kanagawa-dragon" >&2
+    slug=kanagawa-dragon
+    scheme="$SCHEMES/$slug.conf"
+fi
+[ -f "$scheme" ] || { echo "focus-apply-scheme: no scheme files in $SCHEMES" >&2; exit 1; }
+
+# ── parse the scheme ──
+get() { sed -n "s/^$1=//p" "$scheme" | head -1 | tr -d '[:space:]#'; }
+background=$(get background); background=${background:-000000}
+foreground=$(get foreground); foreground=${foreground:-c5c9c5}
+i=0
+while [ "$i" -lt 8 ]; do
+    eval "regular$i=\$(get regular$i)"
+    eval "[ -n \"\$regular$i\" ]" || eval "regular$i=\$background"
+    eval "bright$i=\$(get bright$i)"
+    eval "[ -n \"\$bright$i\" ]" || eval "bright$i=\$foreground"
+    i=$((i+1))
+done
+inkdeep=$(get ui_inkdeep); inkdeep=${inkdeep:-$regular7}
+sumi=$(get ui_sumi);       sumi=${sumi:-$bright0}
+# The ui_* lookups that used to be here were an abandoned experiment: only 5 of
+# 13 schemes ever defined ui_indigo, 2 defined ui_seal, and that seal value was
+# RED — so the chrome accent silently became red. Read the standard slots
+# instead, which every scheme defines.
+# `indigo` is a SECOND, distinct accent — Format.js colours code text with it
+# and placeholders with `seal`, so the two MUST differ or the distinction
+# vanishes (they were both bright4 at one point, which silently collapsed it).
+# bright2 measured the best worst-case separation from both seal and alert
+# across all 13 schemes (24 deg, monokai-pro). It shares a slot with a4, but
+# those appear on different surfaces (Format.js code text vs the battery glyph)
+# and are never adjacent, so that is not a visual conflict.
+indigo=$bright2
+# `seal` is consumed as CHROME — the active workspace dot, hover highlights,
+# selected rows, the menu and power glyphs (~15 sites) — and must therefore be
+# the scheme's ACCENT. It used to fall back to regular1, the RED slot, which is
+# why every highlight in the shell came out red. Red is reserved for `alert`,
+# used by the omni tiles for genuine warnings (low battery, muted, high CPU).
+seal=${seal:-$bright4}
+alert=${alert:-$regular1}
+
+# Distinct per-widget accents for the quickshell bar. Derived from the standard
+# palette slots, which EVERY scheme defines — the earlier ui_* experiment only
+# existed in 5 of 13 schemes, so seal/indigo fell back to regular1 (red) and the
+# bar rendered as bg + white + red. Slots chosen by measured hue separation
+# across all schemes (bright2/3/4/5/6 keep the closest pair ~15 deg apart).
+a1=${bright4:-$indigo}   # blue   — cpu
+a2=${bright5:-$seal}     # magenta— ram
+a3=${bright6:-$bright2}  # cyan   — volume
+a4=${bright2:-$bright6}  # green  — battery
+a5=${bright3:-$bright1}  # yellow — keyboard
+
+# hex → "r, g, b" for hyprlock rgba(); malformed values fall back
+rgb() {
+    local v="$1" def="${2:-000000}"
+    case "$v" in
+        ??????) : ;;
+        *) v="$def" ;;
+    esac
+    printf '%d, %d, %d' "$((16#${v:0:2}))" "$((16#${v:2:2}))" "$((16#${v:4:2}))"
+}
+
+# ── 1. focus guard = quickshell palette payload ──
+payload=$(printf '{"paper":"#%s","ink":"#%s","inkDeep":"#%s","sumi":"#%s","indigo":"#%s","sealRaw":"#%s","a1":"#%s","a2":"#%s","a3":"#%s","a4":"#%s","a5":"#%s","alert":"#%s"}' \
+    "$background" "$foreground" "$inkdeep" "$sumi" "$indigo" "$seal" \
+    "$a1" "$a2" "$a3" "$a4" "$a5" "$alert")
+printf '%s\n' "$payload" > "$STATE_FILE"
+
+# ── 2. wallpaper: solid scheme background on every live output ──
+# Marker for the deferred re-render below: this apply fires the theme
+# pipeline, which appends a "matugen ok" line when done. Capture the count
+# BEFORE applying — matugen can finish before the wait starts, so waiting
+# for the *next* line would stall until timeout every time.
+_matugen_log="$HOME/.cache/skwd-wall-v2/skwd-walld.log"
+_matugen_before=0
+[ -f "$_matugen_log" ] && _matugen_before=$(grep -c "matugen ok" "$_matugen_log" 2>/dev/null || true)
+
+mkdir -p "$BG_DIR"
+bg_png="$BG_DIR/$slug.png"
+if magick -size 1x1 "xc:#$background" "$bg_png" 2>/dev/null && [ -f "$bg_png" ]; then
+    # hyprctl resolves the compositor via HYPRLAND_INSTANCE_SIGNATURE, and a
+    # caller can carry a STALE one: the quickshell picker spawns us with the
+    # env baked in at ITS start, so a Hyprland restart in between leaves
+    # `hyprctl monitors -j` exiting 4 with empty output — the loop below then
+    # silently applies nothing and the switch changes every surface except
+    # the wallpaper. Re-resolve exactly like hypr-focus-toggle does (live
+    # socket first, newest runtime dir as fallback) before calling hyprctl.
+    _sock=$(ss -xlp 2>/dev/null | grep -o "/run/user/${UID}/hypr/[^ ]*\.socket\.sock" | head -1)
+    _sig=""
+    [ -n "$_sock" ] && _sig="$(basename "$(dirname "$_sock")")"
+    [ -z "$_sig" ] && _sig=$(ls -1t "/run/user/${UID}/hypr" 2>/dev/null | head -1)
+    [ -n "$_sig" ] && export HYPRLAND_INSTANCE_SIGNATURE="$_sig"
+
+    _monitors=$(hyprctl monitors -j 2>/dev/null | jq -r '.[] | select(.disabled == false) | .name' 2>/dev/null || true)
+    [ -n "$_monitors" ] || echo "focus-apply-scheme: no monitors from hyprctl (sig=${HYPRLAND_INSTANCE_SIGNATURE:-unset})" >&2
+    for m in $_monitors; do
+        skwd-helm apply "$bg_png" -o "$m" >/dev/null 2>&1 || true
+    done
+    ln -sf "$bg_png" "$LOCK_BG" 2>/dev/null || true
+else
+    echo "focus-apply-scheme: wallpaper generation failed (magick)" >&2
+fi
+
+# ── 3. hyprlock: VARIABLES ONLY (see header note) ──
+if [ -e "$HYPRLOCK_OVERRIDE" ]; then
+    cat > "$HYPRLOCK_OVERRIDE" << EOF
+# Focus-mode overrides — generated by focus-apply-scheme ($slug).
+# Sourced by hyprlock.conf AFTER the matugen theme but BEFORE the widget
+# blocks: variables are expanded at parse time, so overriding them here is
+# the only safe way to retheme the lock from a late-sourced file. Do NOT
+# open background/input-field/etc blocks here — those are anonymous-key
+# categories, a second block creates ANOTHER widget (duplicate field).
+# Truncated (empty) when focus mode is off.
+\$color           = rgba($(rgb "$background"), 1)
+\$font_color      = rgba($(rgb "$foreground"), 1)
+\$inner_color     = rgba($(rgb "$regular0"), 0.55)
+\$outer_color     = rgba($(rgb "$indigo" "$foreground"), 0.45)
+\$check_color     = rgba($(rgb "$bright2" "$foreground"), 1)
+\$fail_color      = rgba($(rgb "$bright1" "$foreground"), 1)
+\$bg_blur_passes  = 0
+\$bg_brightness   = 1
+\$anim_enabled    = 0
+EOF
+fi
+
+# ── 4. quickshell palette (also used on a live scheme switch) ──
+qs-ipc call theme focusPalette "$payload" >/dev/null 2>&1 || true
+
+# ── 5. foot: colours.ini rewrite + OSC push (focus-aware hook) ──
+foot-reload-colors.sh >/dev/null 2>&1 || true
+
+# ── 6. integration outputs (btop/cava/pi/zen/GTK/...): re-render from the
+# scheme once the pipeline has finished writing its fallback-coloured
+# versions. Backgrounded — focus-toggle latency must not wait on it, and
+# the renderer re-checks focus mode itself before touching anything, so a
+# quick off-toggle mid-wait cannot leak scheme colours outside focus.
+# If the daemon's matugen feature is disabled there is nothing to wait for,
+# so the wait is skipped (see below).
+(
+    # Does the daemon still run its matugen pass? When features.matugen is
+    # false nothing will ever append "matugen ok", so waiting for one is pure
+    # latency — skip straight to the render. Read defensively: any doubt
+    # (missing key, unreadable file, malformed JSON) falls back to waiting,
+    # which is the safe behaviour.
+    _matugen_on=1
+    if [ -r "$HOME/.config/skwd-wall-v2/config.json" ]; then
+        _flag=$(python3 -c '
+import json, sys
+try:
+    d = json.load(open(sys.argv[1]))
+except Exception:
+    sys.exit(0)
+f = d.get("features")
+if isinstance(f, dict) and f.get("matugen") is False:
+    print("off")
+' "$HOME/.config/skwd-wall-v2/config.json" 2>/dev/null || true)
+        [ "$_flag" = "off" ] && _matugen_on=0
+    fi
+
+    if [ "$_matugen_on" = 1 ]; then
+        i=0
+        while [ "$i" -lt 40 ]; do
+            sleep 0.25
+            now=0
+            [ -f "$_matugen_log" ] && now=$(grep -c "matugen ok" "$_matugen_log" 2>/dev/null || true)
+            [ "${now:-0}" -gt "${_matugen_before:-0}" ] && break
+            i=$((i+1))
+        done
+        sleep 0.6
+    fi
+    focus-theme-render >/dev/null 2>&1 || true
+) &

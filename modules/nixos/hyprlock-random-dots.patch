@@ -1,0 +1,106 @@
+--- a/src/renderer/widgets/PasswordInputField.hpp	2026-10-11 16:50:54.601654859 -0400
++++ b/src/renderer/widgets/PasswordInputField.hpp	2026-10-11 16:50:54.629675965 -0400
+@@ -69,6 +69,10 @@
+         int               rounding       = 0;
+         size_t            textResourceID = 0;
+         std::string       textFormat     = "";
++        std::string       textCharset    = "";
++        std::string       textRandomFont = "";
++        std::string       randomText     = "";
++        bool              textRandom     = false;
+         ASP<CTexture>     textAsset      = nullptr;
+     } dots;
+ 
+--- a/src/renderer/widgets/PasswordInputField.cpp	2026-10-11 16:50:54.531231956 -0400
++++ b/src/renderer/widgets/PasswordInputField.cpp	2026-10-11 16:50:54.629776811 -0400
+@@ -88,6 +88,19 @@
+ 
+     pos = posFromHVAlign(viewport, size->goal(), configPos, halign, valign);
+ 
++    // random-dots mode: dots_text_format = "@rand:<font>:<charset>" renders
++    // the visible password as random characters from <charset> (one per typed
++    // character, appended as you type; font defaults to font_family).
++    if (dots.textFormat.rfind("@rand:", 0) == 0) {
++        const auto SEP = dots.textFormat.find(':', 6);
++        if (SEP != std::string::npos && SEP > 6 && SEP + 1 < dots.textFormat.size()) {
++            dots.textRandom     = true;
++            dots.textRandomFont = dots.textFormat.substr(6, SEP - 6);
++            dots.textCharset    = dots.textFormat.substr(SEP + 1);
++            dots.textFormat.clear();
++        }
++    }
++
+     if (!dots.textFormat.empty()) {
+         Hyprgraphics::CTextResource::STextResourceData request;
+         request.text        = dots.textFormat;
+@@ -234,7 +247,69 @@
+     const int ROUND = roundingForBox(inputFieldBox, rounding);
+     g_pRenderer->renderRect(inputFieldBox, innerCol, ROUND);
+ 
+-    if (!hiddenInputState.enabled) {
++    if (!hiddenInputState.enabled && dots.textRandom) {
++        // append-only: grow with one new random char per keystroke (never a
++        // character already present in the string), truncate on backspace;
++        // the texture is rebuilt from the hair-space-separated letters.
++        if (passwordLength != dots.randomText.size()) {
++            if (passwordLength > dots.randomText.size()) {
++                while (dots.randomText.size() < passwordLength) {
++                    std::string unused;
++                    for (const char c : dots.textCharset)
++                        if (dots.randomText.find(c) == std::string::npos)
++                            unused += c;
++
++                    if (unused.empty())
++                        dots.randomText += dots.textCharset[rand() % dots.textCharset.size()];
++                    else
++                        dots.randomText += unused[rand() % unused.size()];
++                }
++            } else
++                dots.randomText.resize(passwordLength);
++
++            if (dots.textAsset) {
++                g_asyncResourceManager->unload(dots.textAsset);
++                dots.textAsset = nullptr;
++            }
++
++            if (passwordLength > 0) {
++                std::string spaced;
++                spaced.reserve(dots.randomText.size() * 4);
++                for (size_t k = 0; k < dots.randomText.size(); ++k) {
++                    if (k > 0)
++                        spaced += "\xE2\x80\x8A"; // U+200A hair space
++                    spaced += dots.randomText[k];
++                }
++
++                Hyprgraphics::CTextResource::STextResourceData request;
++                request.text        = spaced;
++                request.font        = dots.textRandomFont.empty() ? fontFamily : dots.textRandomFont;
++                request.color       = colorConfig.font.asRGB();
++                request.fontSize    = (int)(std::nearbyint(configSize.y * dots.size * 0.5f) * 2.f);
++                dots.textResourceID = g_asyncResourceManager->requestText(request, nullptr);
++            }
++        }
++
++        if (passwordLength > 0) {
++            if (!dots.textAsset)
++                dots.textAsset = g_asyncResourceManager->getAssetByID(dots.textResourceID);
++
++            if (!dots.textAsset)
++                forceReload = true;
++            else {
++                const Vector2D ASSETPOS = inputFieldBox.pos() + inputFieldBox.size() / 2.0 - dots.textAsset->m_vSize / 2.0;
++                const CBox     ASSETBOX{ASSETPOS, dots.textAsset->m_vSize};
++
++                glEnable(GL_SCISSOR_TEST);
++                glScissor(inputFieldBox.x, inputFieldBox.y, inputFieldBox.w, inputFieldBox.h);
++                g_pRenderer->renderTexture(ASSETBOX, *dots.textAsset, fontCol.a, 0);
++                glScissor(0, 0, viewport.x, viewport.y);
++                glDisable(GL_SCISSOR_TEST);
++            }
++        }
++    }
++
++    if (!hiddenInputState.enabled && !dots.textRandom) {
+         const int RECTPASSSIZE = std::nearbyint(inputFieldBox.h * dots.size * 0.5f) * 2.f;
+         Vector2D  passSize{RECTPASSSIZE, RECTPASSSIZE};
+         int       passSpacing = std::floor(passSize.x * dots.spacing);
